@@ -2,6 +2,32 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/sjtu-marl/ZSC-Eval)
 
+---
+
+## Research Fork — Contrastive Partner Representations for ZSC
+
+This fork extends ZSC-Eval to investigate whether **contrastively learned partner representations** improve zero-shot coordination over population-only baselines.
+
+**Research goal:** A policy conditioned on an inferred partner embedding should coordinate better with held-out partners than a single population-trained generalist (FCP/MEP).
+
+- [Research Log](RESEARCH_LOG.md) — running progress updates, results, and next steps
+- [Project Start Notes](PROJECT_START_NOTES.md) — setup, key files, and research plan
+
+### Reproduced Baselines (BR-Prox, best variant per algo)
+
+| Layout | SP | FCP | MEP |
+|---|---|---|---|
+| `random0` | 0.857 | 0.877 | 0.873 |
+| `random0_medium` | 0.567 | 0.643 | 0.586 |
+| `random1` | 0.274 | 0.708 | 0.763 |
+| `random3` | 0.100 | 0.635 | 0.696 |
+| `small_corridor` | 0.191 | 0.553 | 0.876 |
+| `unident_s` | 0.469 | 0.967 | 0.965 |
+
+Target layouts: **`random3`** (hardest, largest gap) and **`unident_s`** (cleanest asymmetry).
+
+---
+
 ## Overview
 <div align=center>
 <img src="assets/ZSC-Eval.png" width="800px">
