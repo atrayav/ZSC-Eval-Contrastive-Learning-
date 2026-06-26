@@ -4,7 +4,7 @@
 
 ---
 
-## Research Fork — Contrastive Partner Representations for ZSC
+## Varun Atraya — Research Extension
 
 This fork extends ZSC-Eval to investigate whether **contrastively learned partner representations** improve zero-shot coordination over population-only baselines.
 
@@ -13,7 +13,7 @@ This fork extends ZSC-Eval to investigate whether **contrastively learned partne
 - [Research Log](RESEARCH_LOG.md) — running progress updates, results, and next steps
 - [Project Start Notes](PROJECT_START_NOTES.md) — setup, key files, and research plan
 
-### Reproduced Baselines (BR-Prox, best variant per algo)
+### Varun Atraya — Reproduced Baselines (BR-Prox, best variant per algo)
 
 | Layout | SP | FCP | MEP |
 |---|---|---|---|
@@ -27,6 +27,12 @@ This fork extends ZSC-Eval to investigate whether **contrastively learned partne
 Target layouts: **`random3`** (hardest, largest gap) and **`unident_s`** (cleanest asymmetry).
 
 ---
+
+## Original Paper — ZSC-Eval (Wang et al., NeurIPS 2024)
+
+> The following sections are from the original ZSC-Eval paper and codebase by Xihuai Wang, Shao Zhang et al. (SJTU-MARL). This fork builds on their work without modifying the core framework.
+>
+> Paper: [arxiv 2310.05208](https://arxiv.org/abs/2310.05208) — Official repo: [sjtu-marl/ZSC-Eval](https://github.com/sjtu-marl/ZSC-Eval)
 
 ## Overview
 <div align=center>
