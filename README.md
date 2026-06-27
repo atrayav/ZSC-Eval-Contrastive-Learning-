@@ -26,11 +26,48 @@ This fork extends ZSC-Eval to investigate whether **contrastively learned partne
 
 Target layouts: **`random3`** (hardest, largest gap) and **`unident_s`** (cleanest asymmetry).
 
+### Contrastive Partner Encoder Implementation
+
+This fork adds an experimental contrastive partner-encoder path for Overcooked SP/MAPPO training:
+
+- `PartnerEncoder`: a GRU encoder that maps recent partner observations to a normalized embedding.
+- InfoNCE training: the encoder is optimized with a symmetric contrastive loss over partner-observation clips.
+- Actor conditioning: with `--condition_actor_on_partner`, the MAPPO actor receives the learned partner embedding during rollout, PPO update, and evaluation.
+- Replay support: rollout-time partner embeddings are stored in `SharedReplayBuffer` so PPO recomputes action log-probabilities with the same conditioning vector used to sample the action.
+- Overcooked runner support: evaluation uses a fresh rolling partner-observation window so conditioned policies are evaluated with embeddings rather than zero vectors.
+
+Primary files changed:
+
+- `zsceval/algorithms/r_mappo/algorithm/contrastive_encoder.py`
+- `zsceval/algorithms/r_mappo/algorithm/r_actor_critic.py`
+- `zsceval/algorithms/r_mappo/algorithm/rMAPPOPolicy.py`
+- `zsceval/algorithms/r_mappo/r_mappo.py`
+- `zsceval/utils/shared_buffer.py`
+- `zsceval/runner/shared/overcooked_runner.py`
+- `zsceval/overcooked_config.py`
+
+Run the conditioned contrastive SP experiment:
+
+```shell
+bash zsceval/scripts/overcooked/shell/train_contrastive_sp.sh random3 --condition
+```
+
+Key flags:
+
+- `--use_partner_encoder`
+- `--condition_actor_on_partner`
+- `--partner_emb_dim`
+- `--encoder_context_len`
+- `--encoder_hidden_size`
+- `--infonce_temperature`
+- `--encoder_lr`
+- `--infonce_coef`
+
 ---
 
 ## Original Paper — ZSC-Eval (Wang et al., NeurIPS 2024)
 
-> The following sections are from the original ZSC-Eval paper and codebase by Xihuai Wang, Shao Zhang et al. (SJTU-MARL). This fork builds on their work without modifying the core framework.
+> The following sections are from the original ZSC-Eval paper and codebase by Xihuai Wang, Shao Zhang et al. (SJTU-MARL). This fork builds on their work and adds an experimental contrastive partner-encoder path in the MAPPO/Overcooked training stack.
 >
 > Paper: [arxiv 2310.05208](https://arxiv.org/abs/2310.05208) — Official repo: [sjtu-marl/ZSC-Eval](https://github.com/sjtu-marl/ZSC-Eval)
 
