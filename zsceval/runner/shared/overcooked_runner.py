@@ -178,7 +178,7 @@ class OvercookedRunner(Runner):
                     wandb.log({"train/ETA": eta_t}, step=total_num_steps)
                 logger.info(f'average sparse rewards is {np.mean(env_infos["ep_sparse_r"]):.3f}')
             # eval
-            if episode % self.eval_interval == 0 and self.use_eval or episode == episodes - 1:
+            if (episode % self.eval_interval == 0 or episode == episodes - 1) and self.use_eval:
                 self.eval(total_num_steps)
             e_time = time.time()
             logger.trace(f"Post update models time: {e_time - s_time:.3f}s")
@@ -198,9 +198,60 @@ class OvercookedRunner(Runner):
         self.buffer.obs[0] = obs.copy()
         self.buffer.available_actions[0] = available_actions.copy()
 
+        # Rolling window of partner obs for contrastive encoder.
+        # Shape: [N, M, context_len, flat_obs_dim] — for each (thread, agent) pair,
+        # stores the last context_len obs of the *partner* agent (index 1-a).
+        # obs.shape is [N, M, ...obs_shape...]; we flatten per-step obs to 1-D.
+        if getattr(self.all_args, "use_partner_encoder", False):
+            context_len = getattr(self.all_args, "encoder_context_len", 20)
+            flat_obs_dim = int(np.prod(obs.shape[2:]))
+            self._partner_window = np.zeros(
+                (self.n_rollout_threads, self.num_agents, context_len, flat_obs_dim),
+                dtype=np.float32,
+            )
+
+    @torch.no_grad()
+    def _get_partner_emb(self, step: int):
+        """
+        Compute partner embeddings for the current step.
+
+        Slides the rolling window forward by one step and encodes it.
+        Returns a numpy array of shape [N*M, emb_dim] aligned with the
+        [N*M, obs_dim] batch that get_actions receives, or None if the
+        encoder is not active.
+        """
+        if not getattr(self.all_args, "use_partner_encoder", False):
+            return None
+        if not getattr(self.all_args, "condition_actor_on_partner", False):
+            return None
+        if self.trainer.policy.encoder is None:
+            return None
+
+        # current_obs: [N, M, ...obs_shape...]
+        current_obs = self.buffer.obs[step]
+        N, M = current_obs.shape[:2]
+        flat_obs_dim = int(np.prod(current_obs.shape[2:]))
+        current_obs_flat = current_obs.reshape(N, M, flat_obs_dim)  # [N, M, flat_obs_dim]
+
+        # For agent a, the partner is agent (1-a). Slide window forward.
+        new_window = np.roll(self._partner_window, -1, axis=2)  # shift time axis
+        for a in range(M):
+            new_window[:, a, -1, :] = current_obs_flat[:, 1 - a, :]
+        self._partner_window = new_window
+
+        # Encode: [N*M, context_len, flat_obs_dim] → [N*M, emb_dim]
+        context_len = self._partner_window.shape[2]
+        window_batch = self._partner_window.reshape(N * M, context_len, flat_obs_dim)
+        window_tensor = torch.FloatTensor(window_batch).to(self.device)
+        emb = self.trainer.policy.encoder(window_tensor)  # [N*M, emb_dim]
+        return _t2n(emb)
+
     @torch.no_grad()
     def collect(self, step):
         self.trainer.prep_rollout()
+        partner_emb = self._get_partner_emb(step)
+        # Stash so insert() can write it to the buffer before self.step advances.
+        self._step_partner_emb = partner_emb
         (
             value,
             action,
@@ -214,6 +265,7 @@ class OvercookedRunner(Runner):
             np.concatenate(self.buffer.rnn_states_critic[step]),
             np.concatenate(self.buffer.masks[step]),
             np.concatenate(self.buffer.available_actions[step]),
+            partner_emb=partner_emb,
         )
         # [self.envs, agents, dim]
         values = np.array(np.split(_t2n(value), self.n_rollout_threads))
@@ -257,6 +309,11 @@ class OvercookedRunner(Runner):
 
         bad_masks = np.array([[[0.0] if info["bad_transition"] else [1.0]] * self.num_agents for info in infos])
 
+        # Reshape partner_emb from [N*M, emb_dim] → [N, M, emb_dim] for buffer storage.
+        step_emb = getattr(self, "_step_partner_emb", None)
+        if step_emb is not None:
+            step_emb = step_emb.reshape(self.n_rollout_threads, self.num_agents, -1)
+
         self.buffer.insert(
             share_obs,
             obs,
@@ -269,6 +326,7 @@ class OvercookedRunner(Runner):
             masks,
             bad_masks=bad_masks,
             available_actions=available_actions,
+            partner_embs=step_emb,
         )
 
     def restore(self):
@@ -281,6 +339,14 @@ class OvercookedRunner(Runner):
             if not (self.all_args.use_render or self.all_args.use_eval):
                 policy_critic_state_dict = torch.load(str(self.model_dir) + "/critic.pt", map_location=self.device)
                 self.policy.critic.load_state_dict(policy_critic_state_dict)
+            enc = self.trainer.policy.encoder if hasattr(self.trainer, "policy") else self.policy.encoder
+            if enc is not None:
+                from pathlib import Path
+                enc_path = Path(str(self.model_dir)).parent / "encoder.pt"
+                if enc_path.exists():
+                    enc.load_state_dict(torch.load(str(enc_path), map_location=self.device))
+                else:
+                    logger.warning(f"Encoder checkpoint not found at {enc_path}, starting from scratch.")
 
     def save(self, step, save_critic: bool = False):
         # logger.info(f"save sp periodic_{step}.pt")
@@ -301,6 +367,16 @@ class OvercookedRunner(Runner):
                 torch.save(
                     policy_critic.state_dict(),
                     str(self.save_dir) + f"/critic_periodic_{step}.pt",
+                )
+            if self.trainer.policy.encoder is not None:
+                enc_sd = self.trainer.policy.encoder.state_dict()
+                torch.save(
+                    enc_sd,
+                    str(self.save_dir) + f"/encoder_periodic_{step}.pt",
+                )
+                torch.save(
+                    enc_sd,
+                    str(self.save_dir) + "/encoder.pt",
                 )
 
     @torch.no_grad()
@@ -329,14 +405,44 @@ class OvercookedRunner(Runner):
         )
         eval_masks = np.ones((self.n_eval_rollout_threads, self.num_agents, 1), dtype=np.float32)
 
+        # Fresh rolling window for eval — same logic as _get_partner_emb but
+        # scoped to eval threads and reset at the start of each eval episode.
+        _use_enc = (
+            getattr(self.all_args, "use_partner_encoder", False)
+            and getattr(self.all_args, "condition_actor_on_partner", False)
+            and self.trainer.policy.encoder is not None
+        )
+        if _use_enc:
+            _ctx = getattr(self.all_args, "encoder_context_len", 20)
+            _flat = int(np.prod(eval_obs.shape[2:]))
+            _eval_window = np.zeros(
+                (self.n_eval_rollout_threads, self.num_agents, _ctx, _flat),
+                dtype=np.float32,
+            )
+
         for _ in range(self.episode_length):
             self.trainer.prep_rollout()
+
+            if _use_enc:
+                obs_flat = eval_obs.reshape(self.n_eval_rollout_threads, self.num_agents, _flat)
+                _eval_window = np.roll(_eval_window, -1, axis=2)
+                for _a in range(self.num_agents):
+                    _eval_window[:, _a, -1, :] = obs_flat[:, 1 - _a, :]
+                _win_t = torch.FloatTensor(
+                    _eval_window.reshape(self.n_eval_rollout_threads * self.num_agents, _ctx, _flat)
+                ).to(self.device)
+                with torch.no_grad():
+                    _eval_emb = _t2n(self.trainer.policy.encoder(_win_t))
+            else:
+                _eval_emb = None
+
             eval_action, eval_rnn_states = self.trainer.policy.act(
                 np.concatenate(eval_obs),
                 np.concatenate(eval_rnn_states),
                 np.concatenate(eval_masks),
                 np.concatenate(eval_available_actions),
                 deterministic=not self.all_args.eval_stochastic,
+                partner_emb=_eval_emb,
             )
             eval_actions = np.array(np.split(_t2n(eval_action), self.n_eval_rollout_threads))
             eval_rnn_states = np.array(np.split(_t2n(eval_rnn_states), self.n_eval_rollout_threads))

@@ -1,0 +1,13 @@
+# Enforce LF for shell scripts everywhere — prevents CRLF churn on Windows.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+
+# Binary files — never touch line endings.
+*.pt    binary
+*.pkl   binary
+*.png   binary
+*.jpg   binary

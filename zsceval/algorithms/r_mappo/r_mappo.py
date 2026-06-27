@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 from loguru import logger
 
+from zsceval.algorithms.r_mappo.algorithm.contrastive_encoder import infonce_loss
 from zsceval.algorithms.utils.util import check
 from zsceval.utils.util import get_gard_norm, huber_loss, mse_loss
 from zsceval.utils.valuenorm import ValueNorm
@@ -42,6 +43,10 @@ class R_MAPPO:
         self._use_policy_active_masks = args.use_policy_active_masks
         self._use_policy_vhead = args.use_policy_vhead
         self._use_task_v_out = getattr(args, "use_task_v_out", False)
+
+        self.use_partner_encoder = getattr(args, "use_partner_encoder", False)
+        self.infonce_temperature = getattr(args, "infonce_temperature", 0.1)
+        self.infonce_coef = getattr(args, "infonce_coef", 1.0)
 
         assert (
             self._use_popart and self._use_valuenorm
@@ -122,6 +127,9 @@ class R_MAPPO:
         actor_zero_grad: bool = True,
         critic_zero_grad: bool = True,
     ):
+        if len(sample) == 13:
+            sample = (*sample, None)
+
         if self.share_policy:
             (
                 share_obs_batch,
@@ -137,6 +145,7 @@ class R_MAPPO:
                 adv_targ,
                 available_actions_batch,
                 other_policy_id_batch,
+                partner_embs_batch,
             ) = sample
         else:
             (
@@ -152,6 +161,8 @@ class R_MAPPO:
                 old_action_log_probs_batch,
                 adv_targ,
                 available_actions_batch,
+                _,
+                partner_embs_batch,
             ) = sample
 
         old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
@@ -178,6 +189,7 @@ class R_MAPPO:
             available_actions_batch,
             active_masks_batch,
             task_id=other_policy_id_batch if self._use_task_v_out else None,
+            partner_emb=partner_embs_batch,
         )
         # actor update
         ratio = torch.exp(action_log_probs - old_action_log_probs_batch)
@@ -272,6 +284,49 @@ class R_MAPPO:
             advantages = buffer.returns[:-1] - buffer.value_preds[:-1]
         return advantages
 
+    def update_encoder(self, buffer) -> float:
+        """
+        Train the partner encoder with InfoNCE loss for one gradient step.
+
+        Uses the full episode buffer: the first half of each thread's partner
+        trajectory is the anchor, the second half is the positive.
+        All N threads serve as negatives for each other.
+
+        buffer.obs shape: [T+1, N, M, obs_dim]
+        Partner obs for ego (agent index 0) = buffer.obs[:, :, 1, :]
+        """
+        if self.policy.encoder is None:
+            return 0.0
+
+        obs_full = buffer.obs[:-1]           # [T, N, M, ...obs_shape...]
+        T, N, M = obs_full.shape[:3]
+
+        if N < 2 or T < 2:
+            return 0.0
+
+        # Flatten per-obs dimensions so the GRU sees [batch, T, flat_obs_dim].
+        # agent_idx 0 is ego; agent_idx 1 is partner (for ego at position 0).
+        obs_flat = obs_full.reshape(T, N, M, -1)   # [T, N, M, flat_obs_dim]
+        partner_obs = torch.FloatTensor(obs_flat[:, :, 1, :]).to(self.device)
+        # partner_obs: [T, N, flat_obs_dim]
+        partner_obs = partner_obs.permute(1, 0, 2)  # [N, T, flat_obs_dim]
+
+        half = T // 2
+        self.policy.encoder.train()
+        anchor_emb = self.policy.encoder(partner_obs[:, :half, :])    # [N, emb_dim]
+        pos_emb = self.policy.encoder(partner_obs[:, half:, :])       # [N, emb_dim]
+
+        loss = infonce_loss(anchor_emb, pos_emb, temperature=self.infonce_temperature)
+        loss = loss * self.infonce_coef
+
+        self.policy.encoder_optimizer.zero_grad()
+        loss.backward()
+        if self._use_max_grad_norm:
+            nn.utils.clip_grad_norm_(self.policy.encoder.parameters(), self.max_grad_norm)
+        self.policy.encoder_optimizer.step()
+
+        return loss.item()
+
     def train(self, buffer, turn_on=True, **kwargs):
         if self._use_popart or self._use_valuenorm:
             advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(buffer.value_preds[:-1])
@@ -337,15 +392,22 @@ class R_MAPPO:
         for k in train_info.keys():
             train_info[k] /= num_updates
 
+        if self.use_partner_encoder:
+            train_info["encoder_loss"] = self.update_encoder(buffer)
+
         return train_info
 
     def prep_training(self):
         self.policy.actor.train()
         self.policy.critic.train()
+        if self.policy.encoder is not None:
+            self.policy.encoder.train()
 
     def prep_rollout(self):
         self.policy.actor.eval()
         self.policy.critic.eval()
+        if self.policy.encoder is not None:
+            self.policy.encoder.eval()
 
     def to(self, device):
         self.policy.to(device)

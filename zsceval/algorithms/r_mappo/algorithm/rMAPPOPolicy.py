@@ -1,8 +1,10 @@
+import numpy as np
 import torch
 from loguru import logger
 
+from zsceval.algorithms.r_mappo.algorithm.contrastive_encoder import PartnerEncoder
 from zsceval.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic
-from zsceval.utils.util import update_linear_schedule
+from zsceval.utils.util import get_shape_from_obs_space, update_linear_schedule
 
 
 class ExDataParallel(torch.nn.DataParallel):
@@ -43,6 +45,24 @@ class R_MAPPOPolicy:
             weight_decay=self.weight_decay,
         )
 
+        # Partner encoder (optional contrastive extension)
+        self.use_partner_encoder = getattr(args, "use_partner_encoder", False)
+        if self.use_partner_encoder:
+            obs_shape = get_shape_from_obs_space(obs_space)
+            obs_dim = int(np.prod(obs_shape))  # flatten (H, W, C) or 1-D obs
+            self.encoder = PartnerEncoder(
+                obs_dim=obs_dim,
+                hidden_size=getattr(args, "encoder_hidden_size", 64),
+                emb_dim=getattr(args, "partner_emb_dim", 32),
+            ).to(device)
+            self.encoder_optimizer = torch.optim.Adam(
+                self.encoder.parameters(),
+                lr=getattr(args, "encoder_lr", 1e-3),
+            )
+        else:
+            self.encoder = None
+            self.encoder_optimizer = None
+
     def to_parallel(self):
         if self.data_parallel:
             logger.warning(
@@ -67,10 +87,11 @@ class R_MAPPOPolicy:
         available_actions=None,
         deterministic=False,
         task_id=None,
+        partner_emb=None,
         **kwargs,
     ):
         actions, action_log_probs, rnn_states_actor = self.actor(
-            obs, rnn_states_actor, masks, available_actions, deterministic
+            obs, rnn_states_actor, masks, available_actions, deterministic, partner_emb=partner_emb
         )
         values, rnn_states_critic = self.critic(share_obs, rnn_states_critic, masks, task_id=task_id)
         return values, actions, action_log_probs, rnn_states_actor, rnn_states_critic
@@ -90,12 +111,13 @@ class R_MAPPOPolicy:
         available_actions=None,
         active_masks=None,
         task_id=None,
+        partner_emb=None,
     ):
         (
             action_log_probs,
             dist_entropy,
             policy_values,
-        ) = self.actor.evaluate_actions(obs, rnn_states_actor, action, masks, available_actions, active_masks)
+        ) = self.actor.evaluate_actions(obs, rnn_states_actor, action, masks, available_actions, active_masks, partner_emb=partner_emb)
         values, _ = self.critic(share_obs, rnn_states_critic, masks, task_id=task_id)
         return values, action_log_probs, dist_entropy, policy_values
 
@@ -127,9 +149,10 @@ class R_MAPPOPolicy:
         masks,
         available_actions=None,
         deterministic=False,
+        partner_emb=None,
         **kwargs,
     ):
-        actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
+        actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks, available_actions, deterministic, partner_emb=partner_emb)
         return actions, rnn_states_actor
 
     def get_probs(self, obs, rnn_states_actor, masks, available_actions=None):
@@ -161,7 +184,11 @@ class R_MAPPOPolicy:
     def to(self, device):
         self.actor.to(device)
         self.critic.to(device)
+        if self.encoder is not None:
+            self.encoder.to(device)
 
     def prep_rollout(self):
         self.actor.eval()
         self.critic.eval()
+        if self.encoder is not None:
+            self.encoder.eval()

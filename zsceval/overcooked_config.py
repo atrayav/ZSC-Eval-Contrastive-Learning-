@@ -83,4 +83,55 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
 
     parser.add_argument("--num_initial_state", type=int, default=5)
     parser.add_argument("--replay_return_threshold", type=float, default=0.75)
+
+    # --- Contrastive partner encoder (Varun Atraya extension) ---
+    parser.add_argument(
+        "--use_partner_encoder",
+        action="store_true",
+        default=False,
+        help="Enable contrastive partner encoder (InfoNCE training).",
+    )
+    parser.add_argument(
+        "--partner_emb_dim",
+        type=int,
+        default=32,
+        help="Dimension of the partner embedding vector.",
+    )
+    parser.add_argument(
+        "--encoder_context_len",
+        type=int,
+        default=20,
+        help="Number of recent partner obs steps to feed into the encoder.",
+    )
+    parser.add_argument(
+        "--encoder_hidden_size",
+        type=int,
+        default=64,
+        help="GRU hidden size inside the partner encoder.",
+    )
+    parser.add_argument(
+        "--infonce_temperature",
+        type=float,
+        default=0.1,
+        help="Temperature for InfoNCE contrastive loss.",
+    )
+    parser.add_argument(
+        "--encoder_lr",
+        type=float,
+        default=1e-3,
+        help="Learning rate for the partner encoder optimizer.",
+    )
+    parser.add_argument(
+        "--infonce_coef",
+        type=float,
+        default=1.0,
+        help="Weight of the InfoNCE loss relative to PPO loss.",
+    )
+    parser.add_argument(
+        "--condition_actor_on_partner",
+        action="store_true",
+        default=False,
+        help="Concatenate partner embedding into actor features (requires use_partner_encoder).",
+    )
+
     return parser

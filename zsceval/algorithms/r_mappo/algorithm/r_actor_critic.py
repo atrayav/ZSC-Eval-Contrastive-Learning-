@@ -83,7 +83,14 @@ class R_Actor(nn.Module):
                 self._activation_id,
             )
 
-        self.act = ACTLayer(action_space, input_size, self._use_orthogonal, self._gain)
+        # Partner embedding injected right before the action head.
+        # When condition_actor_on_partner is True, the actor receives an extra
+        # conditioning vector of size partner_emb_dim concatenated to actor_features.
+        self.partner_emb_dim = getattr(args, "partner_emb_dim", 0)
+        self.condition_actor = getattr(args, "condition_actor_on_partner", False)
+        act_input_size = input_size + (self.partner_emb_dim if self.condition_actor else 0)
+
+        self.act = ACTLayer(action_space, act_input_size, self._use_orthogonal, self._gain)
 
         init_method = [nn.init.xavier_uniform_, nn.init.orthogonal_][self._use_orthogonal]
 
@@ -92,13 +99,23 @@ class R_Actor(nn.Module):
 
         if self._use_policy_vhead:
             if self._use_popart:
-                self.v_out = init_(PopArt(input_size, 1, device=device))
+                self.v_out = init_(PopArt(act_input_size, 1, device=device))
             else:
-                self.v_out = init_(nn.Linear(input_size, 1))
+                self.v_out = init_(nn.Linear(act_input_size, 1))
 
         self.to(device)
 
-    def forward(self, obs, rnn_states, masks, available_actions=None, deterministic=False):
+    def _cat_partner_emb(self, actor_features: torch.Tensor, partner_emb) -> torch.Tensor:
+        """Concatenate partner embedding if actor conditioning is enabled."""
+        if not self.condition_actor or self.partner_emb_dim == 0:
+            return actor_features
+        if partner_emb is None:
+            pad = torch.zeros(actor_features.shape[0], self.partner_emb_dim, **self.tpdv)
+        else:
+            pad = check(partner_emb).to(**self.tpdv)
+        return torch.cat([actor_features, pad], dim=-1)
+
+    def forward(self, obs, rnn_states, masks, available_actions=None, deterministic=False, partner_emb=None):
         if self._mixed_obs:
             for key in obs.keys():
                 obs[key] = check(obs[key]).to(**self.tpdv)
@@ -122,11 +139,13 @@ class R_Actor(nn.Module):
             mlp_obs = self.mlp(obs)
             actor_features = torch.cat([actor_features, mlp_obs], dim=1)
 
+        actor_features = self._cat_partner_emb(actor_features, partner_emb)
+
         actions, action_log_probs = self.act(actor_features, available_actions, deterministic)
 
         return actions, action_log_probs, rnn_states
 
-    def evaluate_transitions(self, obs, rnn_states, action, masks, available_actions=None, active_masks=None):
+    def evaluate_transitions(self, obs, rnn_states, action, masks, available_actions=None, active_masks=None, partner_emb=None):
         # ! only work for rnn model
         if self._mixed_obs:
             for key in obs.keys():
@@ -156,6 +175,8 @@ class R_Actor(nn.Module):
         if self._layer_after_N > 0:
             actor_features = self.mlp_after(actor_features)
 
+        actor_features = self._cat_partner_emb(actor_features, partner_emb)
+
         action_log_probs, dist_entropy = self.act.evaluate_actions(
             actor_features,
             action,
@@ -167,7 +188,7 @@ class R_Actor(nn.Module):
 
         return action_log_probs, dist_entropy, values, rnn_states
 
-    def evaluate_actions(self, obs, rnn_states, action, masks, available_actions=None, active_masks=None):
+    def evaluate_actions(self, obs, rnn_states, action, masks, available_actions=None, active_masks=None, partner_emb=None):
         if self._mixed_obs:
             for key in obs.keys():
                 obs[key] = check(obs[key]).to(**self.tpdv)
@@ -193,6 +214,8 @@ class R_Actor(nn.Module):
             actor_features = torch.cat([actor_features, mlp_obs], dim=1)
         if self._layer_after_N > 0:
             actor_features = self.mlp_after(actor_features)
+
+        actor_features = self._cat_partner_emb(actor_features, partner_emb)
 
         action_log_probs, dist_entropy = self.act.evaluate_actions(
             actor_features,

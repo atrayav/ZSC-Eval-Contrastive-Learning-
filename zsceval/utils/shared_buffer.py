@@ -36,6 +36,22 @@ class SharedReplayBuffer:
         self._use_proper_time_limits = args.use_proper_time_limits
         self._use_peb = args.use_peb
 
+        # Partner embeddings — stored at collection time so PPO evaluation uses
+        # the same embedding that generated the action (fixes log_prob mismatch).
+        # Only allocated when actor conditioning is active.
+        _store_embs = (
+            getattr(args, "use_partner_encoder", False)
+            and getattr(args, "condition_actor_on_partner", False)
+        )
+        if _store_embs:
+            _emb_dim = getattr(args, "partner_emb_dim", 32)
+            self.partner_embs = np.zeros(
+                (self.episode_length + 1, self.n_rollout_threads, num_agents, _emb_dim),
+                dtype=np.float32,
+            )
+        else:
+            self.partner_embs = None
+
         self._mixed_obs = False  # for mixed observation
 
         obs_shape = get_shape_from_obs_space(obs_space)
@@ -165,6 +181,7 @@ class SharedReplayBuffer:
         bad_masks=None,
         active_masks=None,
         available_actions=None,
+        partner_embs=None,
     ):
         if self._mixed_obs:
             for key in self.share_obs.keys():
@@ -188,6 +205,10 @@ class SharedReplayBuffer:
             self.active_masks[self.step + 1] = active_masks.copy()
         if available_actions is not None:
             self.available_actions[self.step + 1] = available_actions.copy()
+        if self.partner_embs is not None and partner_embs is not None:
+            # Stored at self.step (same index as actions): the embedding that
+            # produced the action at this step.
+            self.partner_embs[self.step] = partner_embs.copy()
 
         self.step = (self.step + 1) % self.episode_length
 
@@ -240,6 +261,8 @@ class SharedReplayBuffer:
         self.active_masks[0] = self.active_masks[-1].copy()
         if self.available_actions is not None:
             self.available_actions[0] = self.available_actions[-1].copy()
+        if self.partner_embs is not None:
+            self.partner_embs[0] = self.partner_embs[-1].copy()
 
     def chooseafter_update(self):
         self.rnn_states[0] = self.rnn_states[-1].copy()
@@ -404,6 +427,10 @@ class SharedReplayBuffer:
             other_policy_id = self.other_policy_id[:-1].reshape(-1, 1)
         else:
             other_policy_id = None
+        if self.partner_embs is not None:
+            partner_embs = self.partner_embs[:-1].reshape(-1, self.partner_embs.shape[-1])
+        else:
+            partner_embs = None
 
         for indices in sampler:
             # obs size [T+1 N M Dim]-->[T N M Dim]-->[T*N*M,Dim]-->[index,Dim]
@@ -428,6 +455,10 @@ class SharedReplayBuffer:
                 other_policy_id_batch = other_policy_id[indices]
             else:
                 other_policy_id_batch = None
+            if partner_embs is not None:
+                partner_embs_batch = partner_embs[indices]
+            else:
+                partner_embs_batch = None
             value_preds_batch = value_preds[indices]
             return_batch = returns[indices]
             masks_batch = masks[indices]
@@ -438,7 +469,7 @@ class SharedReplayBuffer:
             else:
                 adv_targ = advantages[indices]
 
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch, other_policy_id_batch
+            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch, other_policy_id_batch, partner_embs_batch
 
     def naive_recurrent_generator(self, advantages, num_mini_batch):
         episode_length, n_rollout_threads, num_agents = self.rewards.shape[0:3]
@@ -477,6 +508,10 @@ class SharedReplayBuffer:
             other_policy_id = self.other_policy_id.reshape(-1, batch_size, 1)
         else:
             other_policy_id = None
+        if self.partner_embs is not None:
+            partner_embs = self.partner_embs.reshape(-1, batch_size, self.partner_embs.shape[-1])
+        else:
+            partner_embs = None
 
         for start_ind in range(0, batch_size, num_envs_per_batch):
             if self._mixed_obs:
@@ -491,6 +526,7 @@ class SharedReplayBuffer:
             actions_batch = []
             available_actions_batch = []
             other_policy_id_batch = []
+            partner_embs_batch = []
             value_preds_batch = []
             return_batch = []
             masks_batch = []
@@ -515,6 +551,8 @@ class SharedReplayBuffer:
                     available_actions_batch.append(available_actions[:-1, ind])
                 if other_policy_id is not None:
                     other_policy_id_batch.append(other_policy_id[:-1, ind])
+                if partner_embs is not None:
+                    partner_embs_batch.append(partner_embs[:-1, ind])
                 value_preds_batch.append(value_preds[:-1, ind])
                 return_batch.append(returns[:-1, ind])
                 masks_batch.append(masks[:-1, ind])
@@ -538,6 +576,10 @@ class SharedReplayBuffer:
                 available_actions_batch = np.stack(available_actions_batch, 1)
             if other_policy_id is not None:
                 other_policy_id_batch = np.stack(other_policy_id_batch, 1)
+            if partner_embs is not None:
+                partner_embs_batch = np.stack(partner_embs_batch, 1)
+            else:
+                partner_embs_batch = None
             value_preds_batch = np.stack(value_preds_batch, 1)
             return_batch = np.stack(return_batch, 1)
             masks_batch = np.stack(masks_batch, 1)
@@ -567,6 +609,8 @@ class SharedReplayBuffer:
                 other_policy_id_batch = _flatten(T, N, other_policy_id_batch)
             else:
                 other_policy_id_batch = None
+            if partner_embs_batch is not None:
+                partner_embs_batch = _flatten(T, N, partner_embs_batch)
             value_preds_batch = _flatten(T, N, value_preds_batch)
             return_batch = _flatten(T, N, return_batch)
             masks_batch = _flatten(T, N, masks_batch)
@@ -574,7 +618,7 @@ class SharedReplayBuffer:
             old_action_log_probs_batch = _flatten(T, N, old_action_log_probs_batch)
             adv_targ = _flatten(T, N, adv_targ)
 
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch, other_policy_id_batch
+            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch, other_policy_id_batch, partner_embs_batch
 
     def recurrent_generator(self, advantages, num_mini_batch, data_chunk_length):
         episode_length, n_rollout_threads, num_agents = self.rewards.shape[0:3]
@@ -643,6 +687,12 @@ class SharedReplayBuffer:
         else:
             other_policy_id = None
 
+        if self.partner_embs is not None:
+            # partner_embs[step] aligns with actions[step], so use [:-1] like actions
+            partner_embs_flat = _cast(self.partner_embs[:-1])
+        else:
+            partner_embs_flat = None
+
         for indices in sampler:
             if self._mixed_obs:
                 share_obs_batch = defaultdict(list)
@@ -656,6 +706,7 @@ class SharedReplayBuffer:
             actions_batch = []
             available_actions_batch = []
             other_policy_id_batch = []
+            partner_embs_batch = []
             value_preds_batch = []
             return_batch = []
             masks_batch = []
@@ -680,6 +731,8 @@ class SharedReplayBuffer:
                     available_actions_batch.append(available_actions[ind : ind + data_chunk_length])
                 if other_policy_id is not None:
                     other_policy_id_batch.append(other_policy_id[ind : ind + data_chunk_length])
+                if partner_embs_flat is not None:
+                    partner_embs_batch.append(partner_embs_flat[ind : ind + data_chunk_length])
                 value_preds_batch.append(value_preds[ind : ind + data_chunk_length])
                 return_batch.append(returns[ind : ind + data_chunk_length])
                 masks_batch.append(masks[ind : ind + data_chunk_length])
@@ -707,6 +760,10 @@ class SharedReplayBuffer:
                 available_actions_batch = np.stack(available_actions_batch, axis=1)
             if other_policy_id is not None:
                 other_policy_id_batch = np.stack(other_policy_id_batch, axis=1)
+            if partner_embs_flat is not None and len(partner_embs_batch) > 0:
+                partner_embs_batch = np.stack(partner_embs_batch, axis=1)
+            else:
+                partner_embs_batch = None
             value_preds_batch = np.stack(value_preds_batch, axis=1)
             return_batch = np.stack(return_batch, axis=1)
             masks_batch = np.stack(masks_batch, axis=1)
@@ -736,6 +793,8 @@ class SharedReplayBuffer:
                 other_policy_id_batch = _flatten(L, N, other_policy_id_batch)
             else:
                 other_policy_id_batch = None
+            if partner_embs_batch is not None:
+                partner_embs_batch = _flatten(L, N, partner_embs_batch)
             value_preds_batch = _flatten(L, N, value_preds_batch)
             return_batch = _flatten(L, N, return_batch)
             masks_batch = _flatten(L, N, masks_batch)
@@ -743,7 +802,7 @@ class SharedReplayBuffer:
             old_action_log_probs_batch = _flatten(L, N, old_action_log_probs_batch)
             adv_targ = _flatten(L, N, adv_targ)
 
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch, other_policy_id_batch
+            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch, other_policy_id_batch, partner_embs_batch
 
     def all_traj(self):
         return (
