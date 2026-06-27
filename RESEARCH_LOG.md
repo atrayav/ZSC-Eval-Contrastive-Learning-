@@ -70,13 +70,38 @@ Test whether contrastively learned partner representations improve zero-shot coo
 
 ---
 
+---
+
+## 2026-06-26 — Contrastive Implementation Complete
+
+### What we did
+- Implemented full contrastive partner encoder stack across 7 files:
+  - `contrastive_encoder.py` — GRU encoder + InfoNCE loss
+  - `r_actor_critic.py` — actor accepts and concatenates partner embedding
+  - `rMAPPOPolicy.py` — instantiates encoder, threads embedding through get_actions/act/evaluate_actions
+  - `r_mappo.py` — update_encoder() with anchor/positive episode-split InfoNCE; ppo_update() unpacks 14-field sample
+  - `overcooked_config.py` — 8 new args (use_partner_encoder, partner_emb_dim, encoder_context_len, encoder_hidden_size, infonce_temperature, encoder_lr, infonce_coef, condition_actor_on_partner)
+  - `overcooked_runner.py` — rolling observation window in collect/eval; encoder checkpointing
+  - `shared_buffer.py` — partner_embs storage; all 3 generators yield 14-field samples
+- Fixed PPO log-prob mismatch: embeddings used at collection time now stored in buffer and passed to evaluate_actions()
+- Fixed len(sample)=13 crash path with defensive fallback in ppo_update()
+- Fixed eval() always being called on last episode regardless of use_eval flag
+- Fixed encoder checkpoint restore path mismatch
+- Dry-run passed cleanly on random3 (8000 steps, no errors)
+- Pushed to GitHub: `https://github.com/atrayav/ZSC-Eval-Contrastive-Learning-`
+
+### Key method caveat identified
+Current positive/negative construction uses the **same SP policy across all rollout threads**: anchor = first-half trajectory, positive = second-half trajectory, negatives = other threads. Since all threads run the same policy, InfoNCE may learn to distinguish trajectory segments or environment states rather than partner identity. This undermines the core claim.
+
+### Papers identified as relevant
+- arXiv:2307.01403 — "Learning Multi-Agent Communication with Contrastive Learning" — closest structural match for InfoNCE on MARL trajectory views
+- OpenReview LWmuPfEYhH — "Attention-Guided Contrastive Role Representations for Multi-agent" — contrastive role/type inference in MARL
+- arXiv:2209.15618 — "Beyond Bayes-optimality" — theoretical motivation for why expected-return agents fail under partner uncertainty
+
 ## Next Steps
 
-- [ ] Share results with PI, align on primary layout and training approach
+- [ ] **Method design (priority):** decide positive/negative construction for partner embeddings — FCP population gives distinct partner policies per thread, making InfoNCE meaningful
+- [ ] Adjust encoder training to use FCP-style population rather than SP
+- [ ] Run small local smoke test with new pair construction
+- [ ] Move full training runs and ablations to Hyak
 - [ ] Get Hyak/UWRCC cluster access (requested, pending approval)
-- [ ] Read FCP paper (arxiv 2110.08176) and relevant partner-modeling literature
-- [ ] Implement contrastive partner encoder (`contrastive_encoder.py`)
-  - InfoNCE loss: anchor/positive/negative trajectory clips
-  - Feed partner embedding into ego policy actor
-  - Ablation: constant (zeroed) embedding as control
-- [ ] Train on Hyak with GPU, evaluate against SP/FCP/MEP baselines
