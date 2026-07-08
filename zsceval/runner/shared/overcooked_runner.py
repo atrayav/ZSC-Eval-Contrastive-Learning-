@@ -348,6 +348,9 @@ class OvercookedRunner(Runner):
             if not (self.all_args.use_render or self.all_args.use_eval):
                 policy_critic_state_dict = torch.load(str(self.model_dir) + "/critic.pt", map_location=self.device)
                 self.policy.critic.load_state_dict(policy_critic_state_dict)
+            # Restore the encoder from the fixed-name file save() writes.
+            # model_dir points at the actor .pt, so the encoder sits next to it
+            # in the same folder (hence .parent / "encoder.pt").
             enc = self.trainer.policy.encoder if hasattr(self.trainer, "policy") else self.policy.encoder
             if enc is not None:
                 from pathlib import Path
@@ -355,6 +358,8 @@ class OvercookedRunner(Runner):
                 if enc_path.exists():
                     enc.load_state_dict(torch.load(str(enc_path), map_location=self.device))
                 else:
+                    # Missing encoder is non-fatal: warn and let it train from
+                    # scratch rather than crashing a resumed/eval run.
                     logger.warning(f"Encoder checkpoint not found at {enc_path}, starting from scratch.")
 
     def save(self, step, save_critic: bool = False):
