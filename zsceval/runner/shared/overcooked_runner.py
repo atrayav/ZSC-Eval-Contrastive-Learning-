@@ -234,8 +234,13 @@ class OvercookedRunner(Runner):
         current_obs_flat = current_obs.reshape(N, M, flat_obs_dim)  # [N, M, flat_obs_dim]
 
         # For agent a, the partner is agent (1-a). Slide window forward.
+        # np.roll shifts every timestep back by one along the time axis, which
+        # frees up the last slot; we then overwrite that last slot with the
+        # newest partner observation. Net effect: a FIFO buffer holding the
+        # most recent `context_len` partner obs, oldest first.
         new_window = np.roll(self._partner_window, -1, axis=2)  # shift time axis
         for a in range(M):
+            # 1 - a maps agent 0 -> partner 1 and agent 1 -> partner 0.
             new_window[:, a, -1, :] = current_obs_flat[:, 1 - a, :]
         self._partner_window = new_window
 
