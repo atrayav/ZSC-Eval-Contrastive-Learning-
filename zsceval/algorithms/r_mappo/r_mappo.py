@@ -319,11 +319,22 @@ class R_MAPPO:
         # partner_obs: [T, N, flat_obs_dim]
         partner_obs = partner_obs.permute(1, 0, 2)  # [N, T, flat_obs_dim]
 
+        # Split each thread's episode in half: first half = anchor, second
+        # half = positive. They come from the same partner, so their embeddings
+        # should match; embeddings from other threads act as negatives.
+        #
+        # KNOWN CAVEAT: under self-play every thread runs the SAME policy, so
+        # the "negatives" are not really different partners. The encoder can
+        # only learn to tell trajectory/state noise apart, not partner identity.
+        # Making this meaningful requires FCP-style population rollouts where
+        # each thread is paired with a genuinely distinct partner.
         half = T // 2
         self.policy.encoder.train()
         anchor_emb = self.policy.encoder(partner_obs[:, :half, :])    # [N, emb_dim]
         pos_emb = self.policy.encoder(partner_obs[:, half:, :])       # [N, emb_dim]
 
+        # Contrastive loss, scaled by its coefficient so it can be weighted
+        # against (or turned off relative to) the PPO objective.
         loss = infonce_loss(anchor_emb, pos_emb, temperature=self.infonce_temperature)
         loss = loss * self.infonce_coef
 
