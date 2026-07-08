@@ -322,6 +322,9 @@ class OvercookedRunner(Runner):
         bad_masks = np.array([[[0.0] if info["bad_transition"] else [1.0]] * self.num_agents for info in infos])
 
         # Reshape partner_emb from [N*M, emb_dim] → [N, M, emb_dim] for buffer storage.
+        # get_actions flattens threads and agents together into one batch dim;
+        # the buffer keeps threads and agents on separate axes, so we undo that
+        # flattening here before writing. getattr guards the encoder-off case.
         step_emb = getattr(self, "_step_partner_emb", None)
         if step_emb is not None:
             step_emb = step_emb.reshape(self.n_rollout_threads, self.num_agents, -1)
