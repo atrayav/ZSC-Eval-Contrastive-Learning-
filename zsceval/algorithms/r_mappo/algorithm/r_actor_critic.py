@@ -191,6 +191,9 @@ class R_Actor(nn.Module):
         if self._layer_after_N > 0:
             actor_features = self.mlp_after(actor_features)
 
+        # Training path: re-evaluate stored actions. The embedding here must be
+        # the SAME one used when the action was taken (passed down from the
+        # buffer), or PPO's importance ratio is computed on mismatched inputs.
         actor_features = self._cat_partner_emb(actor_features, partner_emb)
 
         action_log_probs, dist_entropy = self.act.evaluate_actions(
@@ -231,6 +234,9 @@ class R_Actor(nn.Module):
         if self._layer_after_N > 0:
             actor_features = self.mlp_after(actor_features)
 
+        # Training path: re-evaluate stored actions. The embedding here must be
+        # the SAME one used when the action was taken (passed down from the
+        # buffer), or PPO's importance ratio is computed on mismatched inputs.
         actor_features = self._cat_partner_emb(actor_features, partner_emb)
 
         action_log_probs, dist_entropy = self.act.evaluate_actions(
