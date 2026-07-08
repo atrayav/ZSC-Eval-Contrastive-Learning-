@@ -106,13 +106,25 @@ class R_Actor(nn.Module):
         self.to(device)
 
     def _cat_partner_emb(self, actor_features: torch.Tensor, partner_emb) -> torch.Tensor:
-        """Concatenate partner embedding if actor conditioning is enabled."""
+        """Concatenate partner embedding if actor conditioning is enabled.
+
+        This is the single point where the partner "hunch" enters the actor.
+        It is called in forward() and both evaluate_* paths, so all three must
+        behave identically - otherwise the log-probs computed at action time
+        and at training time would disagree and break PPO.
+        """
+        # Feature disabled: return the actor features untouched so behaviour
+        # exactly matches the unmodified baseline network.
         if not self.condition_actor or self.partner_emb_dim == 0:
             return actor_features
+        # Conditioning is on but no embedding was supplied (e.g. Phase 1, or a
+        # warmup step before the window is full): pad with zeros so the input
+        # width the action head expects stays constant and nothing crashes.
         if partner_emb is None:
             pad = torch.zeros(actor_features.shape[0], self.partner_emb_dim, **self.tpdv)
         else:
             pad = check(partner_emb).to(**self.tpdv)
+        # Glue the embedding onto the end of the per-observation features.
         return torch.cat([actor_features, pad], dim=-1)
 
     def forward(self, obs, rnn_states, masks, available_actions=None, deterministic=False, partner_emb=None):
