@@ -28,7 +28,13 @@ class PartnerEncoder(nn.Module):
 
     def __init__(self, obs_dim: int, hidden_size: int, emb_dim: int):
         super().__init__()
+        # The GRU reads the partner's observations one timestep at a time,
+        # keeping a running "memory" of what it has seen so far. batch_first
+        # means we feed tensors shaped [batch, time, obs_dim].
         self.gru = nn.GRU(obs_dim, hidden_size, num_layers=1, batch_first=True)
+        # A small MLP head that compresses the GRU's final memory down to the
+        # embedding size. The ReLU in the middle lets it learn non-linear
+        # summaries rather than a plain linear projection.
         self.proj = nn.Sequential(
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
