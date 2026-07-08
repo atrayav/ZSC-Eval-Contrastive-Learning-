@@ -69,10 +69,19 @@ def infonce_loss(
     Requires N >= 2 (returns zero otherwise).
     """
     N = anchors.shape[0]
+    # With fewer than 2 pairs there are no negatives to contrast against, so
+    # the loss is undefined - return zero and skip this update.
     if N < 2:
         return anchors.new_zeros(()).squeeze()
 
+    # sim[i, j] = similarity between anchor i and positive j. The diagonal
+    # (i == j) is the true matched pair; every off-diagonal entry is a
+    # negative. Dividing by temperature sharpens the distribution: smaller
+    # temperature = harsher penalty for confusing pairs.
     sim = torch.mm(anchors, positives.T) / temperature  # [N, N]
+    # The correct "class" for row i is column i, so the labels are just 0..N-1.
     labels = torch.arange(N, device=anchors.device)
+    # Symmetric loss: predict positive-from-anchor AND anchor-from-positive,
+    # then average. This treats both halves of each pair even-handedly.
     loss = (F.cross_entropy(sim, labels) + F.cross_entropy(sim.T, labels)) / 2.0
     return loss
