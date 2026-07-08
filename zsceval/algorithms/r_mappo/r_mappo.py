@@ -193,9 +193,13 @@ class R_MAPPO:
             available_actions_batch,
             active_masks_batch,
             task_id=other_policy_id_batch if self._use_task_v_out else None,
+            # Feed back the exact embedding stored at collection time so the
+            # recomputed log-probs match the ones used to pick these actions.
             partner_emb=partner_embs_batch,
         )
         # actor update
+        # ratio = new_prob / old_prob. This is only correct when both probs
+        # were computed with identical inputs - hence passing partner_emb above.
         ratio = torch.exp(action_log_probs - old_action_log_probs_batch)
 
         surr1 = ratio * adv_targ
