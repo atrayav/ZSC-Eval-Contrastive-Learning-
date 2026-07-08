@@ -151,6 +151,10 @@ class R_Actor(nn.Module):
             mlp_obs = self.mlp(obs)
             actor_features = torch.cat([actor_features, mlp_obs], dim=1)
 
+        # Inject the partner hunch here, after the RNN/MLP have summarized the
+        # observation but before the action head - so the choice of action can
+        # depend on "who am I working with", not just "what does the kitchen
+        # look like". This is the live acting path used during rollouts.
         actor_features = self._cat_partner_emb(actor_features, partner_emb)
 
         actions, action_log_probs = self.act(actor_features, available_actions, deterministic)
