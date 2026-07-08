@@ -379,6 +379,10 @@ class OvercookedRunner(Runner):
                 )
             if self.trainer.policy.encoder is not None:
                 enc_sd = self.trainer.policy.encoder.state_dict()
+                # Save two copies: a step-stamped snapshot for history, and a
+                # fixed-name encoder.pt. restore() looks for the fixed name, so
+                # writing both is what keeps save/load paths in sync (otherwise
+                # a resumed run silently starts the encoder from scratch).
                 torch.save(
                     enc_sd,
                     str(self.save_dir) + f"/encoder_periodic_{step}.pt",
