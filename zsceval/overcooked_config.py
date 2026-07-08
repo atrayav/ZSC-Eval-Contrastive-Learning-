@@ -85,6 +85,12 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
     parser.add_argument("--replay_return_threshold", type=float, default=0.75)
 
     # --- Contrastive partner encoder (Varun Atraya extension) ---
+    # Two independent switches define the training phase:
+    #   Phase 1: --use_partner_encoder alone. The encoder trains via InfoNCE,
+    #            but the actor ignores the embedding (learns to form hunches).
+    #   Phase 2: add --condition_actor_on_partner. The embedding is fed into
+    #            the actor so behavior can depend on the inferred partner.
+    # The remaining args (dims, temperature, lr, coef) are hyperparameters.
     parser.add_argument(
         "--use_partner_encoder",
         action="store_true",
