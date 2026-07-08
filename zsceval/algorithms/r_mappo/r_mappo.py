@@ -127,6 +127,10 @@ class R_MAPPO:
         actor_zero_grad: bool = True,
         critic_zero_grad: bool = True,
     ):
+        # Backward-compatibility seatbelt: older buffer generators yielded 13
+        # fields (no partner embedding). If we see a 13-field sample, append a
+        # None so the unpacking below still works and conditioning is simply
+        # treated as "no embedding" for that batch.
         if len(sample) == 13:
             sample = (*sample, None)
 
