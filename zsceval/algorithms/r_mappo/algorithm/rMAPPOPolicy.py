@@ -201,5 +201,7 @@ class R_MAPPOPolicy:
     def prep_rollout(self):
         self.actor.eval()
         self.critic.eval()
+        # Put the encoder in eval mode too, so it produces hunches during data
+        # collection without dropout/batchnorm training behavior kicking in.
         if self.encoder is not None:
             self.encoder.eval()
