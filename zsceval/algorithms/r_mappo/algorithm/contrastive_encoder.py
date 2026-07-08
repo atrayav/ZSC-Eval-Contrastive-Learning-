@@ -46,8 +46,13 @@ class PartnerEncoder(nn.Module):
         obs_window: [batch, T, obs_dim]
         Returns [batch, emb_dim] L2-normalized embeddings.
         """
+        # We ignore the per-step outputs and keep only h_n, the GRU's final
+        # memory after watching the whole window - a single summary vector.
         _, h_n = self.gru(obs_window)    # h_n: [1, batch, hidden_size]
         emb = self.proj(h_n.squeeze(0))  # [batch, emb_dim]
+        # L2-normalize so every embedding sits on the unit sphere. This makes
+        # the dot product in the loss a cosine similarity, which keeps the
+        # contrastive comparison about *direction* (identity), not magnitude.
         return F.normalize(emb, dim=-1)
 
 
