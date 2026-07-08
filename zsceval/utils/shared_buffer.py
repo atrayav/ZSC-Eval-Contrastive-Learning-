@@ -269,6 +269,9 @@ class SharedReplayBuffer:
         if self.available_actions is not None:
             self.available_actions[0] = self.available_actions[-1].copy()
         if self.partner_embs is not None:
+            # Carry the last step's embedding into slot 0 for the next rollout,
+            # exactly like the other buffers above - so the new episode starts
+            # from a sensible embedding rather than zeros.
             self.partner_embs[0] = self.partner_embs[-1].copy()
 
     def chooseafter_update(self):
