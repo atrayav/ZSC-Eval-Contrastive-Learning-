@@ -416,6 +416,9 @@ class OvercookedRunner(Runner):
 
         # Fresh rolling window for eval — same logic as _get_partner_emb but
         # scoped to eval threads and reset at the start of each eval episode.
+        # This matters: if eval fed zeros instead of real embeddings, we would
+        # be measuring a DIFFERENT policy than the one we trained, and the
+        # BR-Prox numbers would be meaningless. Eval must mirror collection.
         _use_enc = (
             getattr(self.all_args, "use_partner_encoder", False)
             and getattr(self.all_args, "condition_actor_on_partner", False)
