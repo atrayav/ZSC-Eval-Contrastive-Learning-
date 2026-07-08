@@ -521,6 +521,8 @@ class SharedReplayBuffer:
             other_policy_id = self.other_policy_id.reshape(-1, batch_size, 1)
         else:
             other_policy_id = None
+        # Same embedding extraction as the other generators, but reshaped to
+        # keep the (time, batch) layout this recurrent sampler works with.
         if self.partner_embs is not None:
             partner_embs = self.partner_embs.reshape(-1, batch_size, self.partner_embs.shape[-1])
         else:
