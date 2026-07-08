@@ -96,6 +96,8 @@ class R_MAPPOPolicy:
         available_actions=None,
         deterministic=False,
         task_id=None,
+        # partner_emb: the current partner hunch, forwarded straight to the
+        # actor so acting can be partner-aware. None => baseline behavior.
         partner_emb=None,
         **kwargs,
     ):
