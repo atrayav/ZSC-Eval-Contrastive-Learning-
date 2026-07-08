@@ -45,6 +45,10 @@ class SharedReplayBuffer:
         )
         if _store_embs:
             _emb_dim = getattr(args, "partner_emb_dim", 32)
+            # One embedding slot per (timestep, thread, agent). The +1 on the
+            # time axis mirrors the other buffers (obs, masks), which hold one
+            # extra step for bootstrapping; the embedding column just rides
+            # along with the same indexing.
             self.partner_embs = np.zeros(
                 (self.episode_length + 1, self.n_rollout_threads, num_agents, _emb_dim),
                 dtype=np.float32,
