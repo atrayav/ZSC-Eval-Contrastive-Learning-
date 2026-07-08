@@ -437,6 +437,9 @@ class SharedReplayBuffer:
             other_policy_id = self.other_policy_id[:-1].reshape(-1, 1)
         else:
             other_policy_id = None
+        # Flatten the embedding buffer the same way as everything else so it
+        # can be indexed by the shuffled minibatch sampler below. Every
+        # generator must expose this, or ppo_update gets a short sample tuple.
         if self.partner_embs is not None:
             partner_embs = self.partner_embs[:-1].reshape(-1, self.partner_embs.shape[-1])
         else:
