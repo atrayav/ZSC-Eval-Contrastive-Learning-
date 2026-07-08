@@ -704,6 +704,8 @@ class SharedReplayBuffer:
 
         if self.partner_embs is not None:
             # partner_embs[step] aligns with actions[step], so use [:-1] like actions
+            # (drop the trailing bootstrap step). _cast reshapes it into the
+            # data-chunk layout this generator later slices into minibatches.
             partner_embs_flat = _cast(self.partner_embs[:-1])
         else:
             partner_embs_flat = None
