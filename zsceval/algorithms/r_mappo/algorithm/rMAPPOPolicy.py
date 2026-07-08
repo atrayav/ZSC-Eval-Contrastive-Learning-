@@ -45,21 +45,30 @@ class R_MAPPOPolicy:
             weight_decay=self.weight_decay,
         )
 
-        # Partner encoder (optional contrastive extension)
+        # Partner encoder (optional contrastive extension).
+        # The Policy object owns BOTH the actor/critic and this new encoder, so
+        # it is the natural place to build it and hand it its own optimizer.
         self.use_partner_encoder = getattr(args, "use_partner_encoder", False)
         if self.use_partner_encoder:
             obs_shape = get_shape_from_obs_space(obs_space)
+            # Overcooked observations are a 3-D grid (e.g. 8x5x20). The GRU
+            # wants a flat vector per timestep, so collapse all obs dims into
+            # one number (np.prod) - this also handles already-1-D obs.
             obs_dim = int(np.prod(obs_shape))  # flatten (H, W, C) or 1-D obs
             self.encoder = PartnerEncoder(
                 obs_dim=obs_dim,
                 hidden_size=getattr(args, "encoder_hidden_size", 64),
                 emb_dim=getattr(args, "partner_emb_dim", 32),
             ).to(device)
+            # Separate optimizer: the encoder learns from the contrastive loss
+            # on its own schedule, independent of the PPO actor/critic updates.
             self.encoder_optimizer = torch.optim.Adam(
                 self.encoder.parameters(),
                 lr=getattr(args, "encoder_lr", 1e-3),
             )
         else:
+            # Feature off: keep the attributes so the rest of the code can
+            # check "is self.encoder None?" without special-casing.
             self.encoder = None
             self.encoder_optimizer = None
 
