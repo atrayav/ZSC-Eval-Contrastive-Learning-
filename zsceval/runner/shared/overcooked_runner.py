@@ -205,6 +205,10 @@ class OvercookedRunner(Runner):
         if getattr(self.all_args, "use_partner_encoder", False):
             context_len = getattr(self.all_args, "encoder_context_len", 20)
             flat_obs_dim = int(np.prod(obs.shape[2:]))
+            # Start empty (all zeros): at the very beginning of an episode we
+            # have not seen the partner yet, so the first few embeddings are
+            # formed from a mostly zero-padded history and only become
+            # informative once the window fills with real observations.
             self._partner_window = np.zeros(
                 (self.n_rollout_threads, self.num_agents, context_len, flat_obs_dim),
                 dtype=np.float32,
