@@ -274,6 +274,9 @@ class OvercookedRunner(Runner):
             np.concatenate(self.buffer.rnn_states_critic[step]),
             np.concatenate(self.buffer.masks[step]),
             np.concatenate(self.buffer.available_actions[step]),
+            # This is the live rollout: the partner hunch computed above flows
+            # into action selection, so the actions we collect are already
+            # partner-conditioned. The same emb is stored for PPO to reuse.
             partner_emb=partner_emb,
         )
         # [self.envs, agents, dim]
