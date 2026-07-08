@@ -1,3 +1,17 @@
+"""
+Contrastive partner encoder for zero-shot coordination.
+
+This module is the core of the research extension. It learns to look at a
+short window of a partner's recent observations and summarize "what kind of
+partner is this" into a small fixed-size vector (the partner embedding).
+
+Two pieces live here:
+  - PartnerEncoder: the network that turns partner observations into an embedding.
+  - infonce_loss:  the contrastive objective that teaches the encoder to make
+                   same-partner embeddings similar and different-partner
+                   embeddings dissimilar.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
