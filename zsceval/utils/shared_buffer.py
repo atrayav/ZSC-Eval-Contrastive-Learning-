@@ -210,8 +210,11 @@ class SharedReplayBuffer:
         if available_actions is not None:
             self.available_actions[self.step + 1] = available_actions.copy()
         if self.partner_embs is not None and partner_embs is not None:
-            # Stored at self.step (same index as actions): the embedding that
-            # produced the action at this step.
+            # NOTE the index: unlike obs/masks above (stored at self.step + 1,
+            # because they describe the state *after* acting), the embedding is
+            # stored at self.step - the same slot as the action it produced.
+            # This alignment is what lets PPO later pair each action with the
+            # exact embedding that generated it.
             self.partner_embs[self.step] = partner_embs.copy()
 
         self.step = (self.step + 1) % self.episode_length
