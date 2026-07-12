@@ -98,6 +98,18 @@ Current positive/negative construction uses the **same SP policy across all roll
 - OpenReview LWmuPfEYhH — "Attention-Guided Contrastive Role Representations for Multi-agent" — contrastive role/type inference in MARL
 - arXiv:2209.15618 — "Beyond Bayes-optimality" — theoretical motivation for why expected-return agents fail under partner uncertainty
 
+## 2026-07-08 — Documentation Pass Over the Encoder Stack
+
+### What we did
+- Commented the entire contrastive stack in 26 single-concern commits — every non-obvious decision now has an explanation at the code site
+- Highlights: why the stored embedding must feed the PPO ratio (log-prob match), why eval must mirror collection-time embeddings, the rolling-window FIFO slide and zero-init cold start, the anchor/positive episode split and its self-play caveat, the 13-field backward-compat fallback in `ppo_update()`, and the dual encoder save that keeps save/restore paths in sync
+
+### Why
+- The June implementation carried implicit invariants discovered during debugging; encoding them as comments at the code site makes the repo safe to hand off and hard to break silently
+
+---
+
+
 ## Next Steps
 
 - [ ] **Method design (priority):** decide positive/negative construction for partner embeddings — FCP population gives distinct partner policies per thread, making InfoNCE meaningful
