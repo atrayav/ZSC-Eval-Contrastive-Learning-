@@ -110,6 +110,15 @@ Current positive/negative construction uses the **same SP policy across all roll
 ---
 
 
+## 2026-07-10 — CONTEXT.md Handoff Guide
+
+### What we did
+- Added `CONTEXT.md`: a single top-to-bottom resume guide (research summary, current status, file map, run instructions, the open SP-negatives decision, gotchas, paper lineage)
+- Recorded the two-checkout layout and golden rule: the WSL checkout (`~/ZSC-Eval`) is authoritative and all git operations happen there; the Windows copy is editing convenience only
+
+---
+
+
 ## Next Steps
 
 - [ ] **Method design (priority):** decide positive/negative construction for partner embeddings — FCP population gives distinct partner policies per thread, making InfoNCE meaningful
