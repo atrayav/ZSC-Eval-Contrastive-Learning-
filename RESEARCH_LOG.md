@@ -136,6 +136,20 @@ Current positive/negative construction uses the **same SP policy across all roll
 ---
 
 
+## 2026-07-12 — Method Decision: Staged Encoder Pre-training
+
+### Decision
+Resolve the SP-negatives problem (see 06-26 caveat) with **Option 2: pre-train the encoder on frozen FCP population rollouts**, rather than training it jointly during FCP Stage 2.
+
+### Rationale
+- **Falsifiable early:** linear-probe accuracy on held-out partners tells us whether the embedding captures partner identity *before* any policy-training compute is spent
+- **Data already exists:** the reproduced FCP population checkpoints provide genuinely distinct partners; collection is a standalone script, not training-loop surgery
+- **Cleaner ablations and paper story:** mirrors PEARL's staged setup with InfoNCE swapped in for the VAE/ELBO objective
+- **Go/no-go gate defined:** probe accuracy well above chance on held-out partners → proceed to policy conditioning; otherwise fix the encoder first
+
+---
+
+
 ## Next Steps
 
 - [ ] **Method design (priority):** decide positive/negative construction for partner embeddings — FCP population gives distinct partner policies per thread, making InfoNCE meaningful
