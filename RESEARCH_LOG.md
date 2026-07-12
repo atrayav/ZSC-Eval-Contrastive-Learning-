@@ -119,6 +119,15 @@ Current positive/negative construction uses the **same SP policy across all roll
 ---
 
 
+## 2026-07-11 — Verification of Pushed State + Repo Recovery
+
+### Verification (all passed)
+- Functional test: `PartnerEncoder` outputs `[4, 32]`, embeddings L2-normalized to exactly 1.0; all modified modules (`rMAPPOPolicy`, `R_MAPPO`, `SharedReplayBuffer`, `OvercookedRunner`) import cleanly
+- InfoNCE at random init printed 2.08 vs the naive log(4)≈1.39 expectation — expected at temperature 0.1 (noisy logits push the untrained loss above log(N)), not a bug
+- End-to-end Phase 2 smoke run on `random3` (`--use_partner_encoder --condition_actor_on_partner`): 8,000 timesteps at 269 FPS, exit code 0, zero errors
+- CLI coverage check: all 8 encoder args present in `overcooked_config.py`, standard args confirmed in base `config.py`
+
+
 ## Next Steps
 
 - [ ] **Method design (priority):** decide positive/negative construction for partner embeddings — FCP population gives distinct partner policies per thread, making InfoNCE meaningful
