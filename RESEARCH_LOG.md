@@ -128,6 +128,14 @@ Current positive/negative construction uses the **same SP policy across all roll
 - CLI coverage check: all 8 encoder args present in `overcooked_config.py`, standard args confirmed in base `config.py`
 
 
+### Repo recovery & line-ending fix
+- Windows checkout was stuck mid-interactive-rebase with 7 unresolved files; a drift audit found zero code lines unique to Windows (WSL was a strict superset), so the rebase was aborted and the checkout hard-reset to the WSL history (fetched via `//wsl.localhost/...` — network fetch times out on Windows)
+- Root-caused phantom "modified" files: 23 files had been committed with CRLF before `.gitattributes` existed; fixed with `git add --renormalize .` (commit `988c6ac`, 156 files) and `core.autocrlf=false` on the Windows clone
+- Deleted debug-session leftovers (`check_gen.py`, `check_sample.py`, `debug_run.sh`, `remove_debug.py`, stale `scripts/` draft); `test_imports.sh` kept as the tracked smoke test
+
+---
+
+
 ## Next Steps
 
 - [ ] **Method design (priority):** decide positive/negative construction for partner embeddings — FCP population gives distinct partner policies per thread, making InfoNCE meaningful
