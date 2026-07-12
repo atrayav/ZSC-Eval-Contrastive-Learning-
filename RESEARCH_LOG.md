@@ -152,8 +152,9 @@ Resolve the SP-negatives problem (see 06-26 caveat) with **Option 2: pre-train t
 
 ## Next Steps
 
-- [ ] **Method design (priority):** decide positive/negative construction for partner embeddings — FCP population gives distinct partner policies per thread, making InfoNCE meaningful
-- [ ] Adjust encoder training to use FCP-style population rather than SP
-- [ ] Run small local smoke test with new pair construction
-- [ ] Move full training runs and ablations to Hyak
-- [ ] Get Hyak/UWRCC cluster access (requested, pending approval)
+- [ ] Rollout-collection script: pair a fixed agent with each frozen FCP population partner, save observation windows labeled by partner ID
+- [ ] Offline InfoNCE pre-training: positives = same partner / different windows, negatives = other partners
+- [ ] **Go/no-go gate:** linear-probe / k-NN partner classification accuracy on held-out partners and held-out episodes
+- [ ] If gate passes: condition the actor on the frozen encoder during FCP Stage 2; compare BR-Prox vs FCP baseline (`random3`: 0.635, `unident_s`: 0.967)
+- [ ] Ablations: zero-embedding control, within-episode adaptation curve
+- [ ] Move full training runs and ablations to Hyak (access pending)
