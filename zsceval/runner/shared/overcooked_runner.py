@@ -249,8 +249,13 @@ class OvercookedRunner(Runner):
         self._partner_window = new_window
 
         # Encode: [N*M, context_len, flat_obs_dim] → [N*M, emb_dim]
+        # Obs are divided by partner_obs_scale first: featurized Overcooked obs
+        # are uint8-image-scaled (presence flag = 255, timers up to 255*20) and
+        # raw values saturate the GRU - offline pre-training showed the loss
+        # stays at log(N) without this.
         context_len = self._partner_window.shape[2]
-        window_batch = self._partner_window.reshape(N * M, context_len, flat_obs_dim)
+        scale = getattr(self.all_args, "partner_obs_scale", 255.0)
+        window_batch = self._partner_window.reshape(N * M, context_len, flat_obs_dim) / scale
         window_tensor = torch.FloatTensor(window_batch).to(self.device)
         emb = self.trainer.policy.encoder(window_tensor)  # [N*M, emb_dim]
         return _t2n(emb)
@@ -455,8 +460,10 @@ class OvercookedRunner(Runner):
                 _eval_window = np.roll(_eval_window, -1, axis=2)
                 for _a in range(self.num_agents):
                     _eval_window[:, _a, -1, :] = obs_flat[:, 1 - _a, :]
+                # Same partner_obs_scale as collection - eval must mirror it.
+                _scale = getattr(self.all_args, "partner_obs_scale", 255.0)
                 _win_t = torch.FloatTensor(
-                    _eval_window.reshape(self.n_eval_rollout_threads * self.num_agents, _ctx, _flat)
+                    _eval_window.reshape(self.n_eval_rollout_threads * self.num_agents, _ctx, _flat) / _scale
                 ).to(self.device)
                 with torch.no_grad():
                     _eval_emb = _t2n(self.trainer.policy.encoder(_win_t))
