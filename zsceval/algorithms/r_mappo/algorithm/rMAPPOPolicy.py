@@ -139,13 +139,22 @@ class R_MAPPOPolicy:
         partner_emb=None,
         **kwargs,
     ):
+        # Rollout-time entry point: one call per env step during collection.
+        # The actor samples an action (or argmax if deterministic) and returns
+        # its log-prob - stored in the buffer so the PPO ratio can be formed
+        # later against re-evaluated log-probs. Both networks also consume and
+        # return their RNN hidden states; `masks` zeroes those states at
+        # episode boundaries so no memory leaks across resets.
         actions, action_log_probs, rnn_states_actor = self.actor(
             obs, rnn_states_actor, masks, available_actions, deterministic, partner_emb=partner_emb
         )
+        # The critic's value estimate for THIS state, used as the GAE baseline.
         values, rnn_states_critic = self.critic(share_obs, rnn_states_critic, masks, task_id=task_id)
         return values, actions, action_log_probs, rnn_states_actor, rnn_states_critic
 
     def get_values(self, share_obs, rnn_states_critic, masks, task_id=None):
+        # Value-only query for the state AFTER the last collected step: GAE
+        # bootstraps the tail of the trajectory from this estimate.
         values, _ = self.critic(share_obs, rnn_states_critic, masks, task_id=task_id)
         return values
 
