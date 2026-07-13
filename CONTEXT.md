@@ -112,6 +112,15 @@ architectural: does conditioning beat FCP 0.635 BR-Prox on `random3`?
   `evaluate_actions`, or the PPO ratio is wrong. This is why embeddings are stored in the buffer.
 - **Nested quoting** through PowerShell→WSL→bash breaks constantly — write a `.sh` file and run it.
 - **`dummy_batch_size` must divide `n_rollout_threads`** (e.g. 10 threads / batch 2).
+- **Launching multi-day runs from Windows:** `nohup ... & disown` inside a `wsl -e`
+  call dies the moment that wsl.exe exits. What works: a space-free wrapper script
+  (see `shell/launch_s2_contrastive_seed1.sh`) started via PowerShell
+  `Start-Process -WindowStyle Hidden wsl.exe -ArgumentList '-e','bash','<path>'` —
+  the hidden wsl.exe holds the session. The laptop must stay awake.
+- **Don't look for `train_adaptive.py` in ps/pgrep** — the trainer calls
+  `setproctitle`, so the process is named `adaptive-Overcooked_<layout>-<exp>@<user>`.
+  Ground truth for "is it training": the tee'd log in `~/ZSC-Eval/logs/` has a
+  fresh mtime and growing size.
 
 ## 8. Paper lineage (for the write-up)
 
