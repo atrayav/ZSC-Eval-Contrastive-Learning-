@@ -198,6 +198,10 @@ class R_MAPPOPolicy:
         active_masks=None,
         task_id=None,
     ):
+        # Variant of evaluate_actions that ALSO returns the actor's final RNN
+        # state, for callers that walk a trajectory in chunks and must carry
+        # the hidden state from one chunk into the next instead of always
+        # starting from the stored initial state.
         (
             action_log_probs,
             dist_entropy,
