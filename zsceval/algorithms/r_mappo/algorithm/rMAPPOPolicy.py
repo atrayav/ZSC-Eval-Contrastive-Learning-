@@ -25,22 +25,44 @@ class ExDataParallel(torch.nn.DataParallel):
 
 
 class R_MAPPOPolicy:
+    """MAPPO policy: a decentralized actor plus a centralized critic.
+
+    The actor maps each agent's LOCAL observation to an action distribution;
+    the critic maps the SHARED (centralized) observation to a value estimate.
+    This asymmetry is the "centralized training, decentralized execution"
+    (CTDE) core of MAPPO. Training code talks to this object rather than to
+    the networks directly.
+    """
+
     def __init__(self, args, obs_space, share_obs_space, act_space, device=torch.device("cpu")):
+        # Where the networks live (cpu/cuda). Inputs are moved here on use.
         self.device = device
+        # Separate learning rates: the value loss and the clipped surrogate
+        # loss have different scales, so actor and critic each get their own
+        # optimizer and step size below.
         self.lr = args.lr
         self.critic_lr = args.critic_lr
+        # Adam stability knobs shared by both optimizers.
         self.opti_eps = args.opti_eps
         self.weight_decay = args.weight_decay
 
+        # Gym spaces are kept so networks can be rebuilt or checkpointed and
+        # so wrappers (e.g. the population pool) can introspect this policy.
         self.obs_space = obs_space
         self.share_obs_space = share_obs_space
         self.act_space = act_space
 
         self.data_parallel = getattr(args, "data_parallel", False)
 
+        # Actor consumes local obs only; critic consumes centralized
+        # share_obs. The critic is discarded at execution time, so a richer
+        # critic input never leaks privileged info into acting.
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
         self.critic = R_Critic(args, self.share_obs_space, self.device)
 
+        # Two independent Adam optimizers: PPO alternates the clipped
+        # surrogate update (actor) and the value regression update (critic),
+        # and nothing forces them to share a schedule.
         self.actor_optimizer = torch.optim.Adam(
             self.actor.parameters(),
             lr=self.lr,
