@@ -139,5 +139,20 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         default=False,
         help="Concatenate partner embedding into actor features (requires use_partner_encoder).",
     )
+    parser.add_argument(
+        "--pretrained_encoder_path",
+        type=str,
+        default=None,
+        help="Checkpoint from pretrain_partner_encoder.py; loads a FROZEN encoder "
+        "for conditioning (staged setup) instead of training one jointly.",
+    )
+    parser.add_argument(
+        "--partner_obs_scale",
+        type=float,
+        default=255.0,
+        help="Divide partner obs by this before encoding. Featurized Overcooked obs "
+        "are uint8-image-scaled (presence flag = 255); raw values saturate the GRU. "
+        "Overridden by the input_scale stored in a pretrained encoder checkpoint.",
+    )
 
     return parser
