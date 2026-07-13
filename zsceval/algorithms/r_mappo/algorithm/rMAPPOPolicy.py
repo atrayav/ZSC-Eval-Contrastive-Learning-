@@ -221,10 +221,16 @@ class R_MAPPOPolicy:
         partner_emb=None,
         **kwargs,
     ):
+        # Execution-only path (evaluation / deployment): same actor forward
+        # as get_actions but without touching the critic, since no training
+        # targets are needed. This is what EvalPolicy and renderers call.
         actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks, available_actions, deterministic, partner_emb=partner_emb)
         return actions, rnn_states_actor
 
     def get_probs(self, obs, rnn_states_actor, masks, available_actions=None):
+        # Full action DISTRIBUTION (not a sample) - used by e.g. behavior
+        # cloning targets, divergence measures, and population diversity
+        # objectives that need the whole probability vector.
         action_probs, rnn_states_actor = self.actor.get_probs(
             obs, rnn_states_actor, masks, available_actions=available_actions
         )
@@ -239,6 +245,9 @@ class R_MAPPOPolicy:
         available_actions=None,
         active_masks=None,
     ):
+        # Log-prob of GIVEN actions under the current policy - the query
+        # needed to score another agent's (or a dataset's) actions without
+        # sampling anything.
         action_log_probs, _, _, rnn_states_actor = self.actor.get_action_log_probs(
             obs, rnn_states_actor, action, masks, available_actions, active_masks
         )
