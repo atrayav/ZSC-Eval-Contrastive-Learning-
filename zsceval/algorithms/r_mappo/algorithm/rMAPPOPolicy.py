@@ -8,10 +8,19 @@ from zsceval.utils.util import get_shape_from_obs_space, update_linear_schedule
 
 
 class ExDataParallel(torch.nn.DataParallel):
+    """DataParallel that forwards unknown attributes to the wrapped module.
+
+    Plain torch.nn.DataParallel only exposes its own attributes, which breaks
+    code that reaches into custom submodules (e.g. ``actor.base.cnn``). This
+    subclass lets callers stay oblivious to whether multi-GPU forwarding is on.
+    """
+
     def __getattr__(self, name):
         try:
+            # First try DataParallel's own attributes (module, device_ids, ...).
             return super().__getattr__(name)
         except AttributeError:
+            # Not found -> fall through to the wrapped module itself.
             return getattr(self.module, name)
 
 
