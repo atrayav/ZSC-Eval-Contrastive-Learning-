@@ -119,6 +119,18 @@ class TrainerPool:
                 else:
                     self.trainer_pool[trainer_name].to(self.device)
                 self.buffer_pool[trainer_name] = None
+
+        # Trainers whose policy conditions on a partner embedding (the staged
+        # contrastive setup): each gets a rolling window over the OTHER
+        # agent's obs in its envs. Windows are (re)built in init_first_step
+        # once obs shapes are known.
+        self._encoder_trainers = {
+            trainer_name
+            for trainer_name in self.active_trainers
+            if getattr(getattr(self.trainer_pool[trainer_name], "policy", None), "encoder", None) is not None
+            and getattr(self.policy_config(trainer_name)[0], "condition_actor_on_partner", False)
+        }
+        self.partner_windows = {}
         self.__initialized = True
 
     def extract_elements(self, trainer_name, x):
@@ -145,6 +157,22 @@ class TrainerPool:
             if available_actions is not None:
                 available_actions_lst = np.expand_dims(self.extract_elements(trainer_name, available_actions), axis=1)
                 self.buffer_pool[trainer_name].available_actions[0] = available_actions_lst.copy()
+
+            # Fresh zero window per episode (cold-start hunch, same convention
+            # as the SP loop), then slide in the partner's first observation so
+            # the step-0 embedding already sees one real frame.
+            if trainer_name in self._encoder_trainers:
+                policy_args = self.policy_config(trainer_name)[0]
+                context_len = getattr(policy_args, "encoder_context_len", 20)
+                flat_obs_dim = int(np.prod(obs.shape[2:]))
+                window = np.zeros(
+                    (self.control_agent_count[trainer_name], context_len, flat_obs_dim),
+                    dtype=np.float32,
+                )
+                obs_flat = obs.reshape(obs.shape[0], obs.shape[1], flat_obs_dim)
+                for i, (e, a) in enumerate(self.control_agents[trainer_name]):
+                    window[i, -1, :] = obs_flat[e, 1 - a]
+                self.partner_windows[trainer_name] = window
         self._step = 0
 
     def reward_shaping_steps(self):
@@ -179,6 +207,17 @@ class TrainerPool:
 
             trainer.prep_rollout()
 
+            # Encode the rolling partner window into an embedding for this
+            # step. The encoder is frozen here (staged setup): no_grad, and
+            # the obs are divided by partner_obs_scale to match how the
+            # encoder was pre-trained (raw image-scaled values saturate it).
+            partner_emb = None
+            if trainer_name in self._encoder_trainers:
+                scale = getattr(self.all_args, "partner_obs_scale", 255.0)
+                window = torch.FloatTensor(self.partner_windows[trainer_name] / scale).to(self.device)
+                with torch.no_grad():
+                    partner_emb = _t2n(trainer.policy.encoder(window))
+
             (
                 value,
                 action,
@@ -192,6 +231,7 @@ class TrainerPool:
                 np.concatenate(buffer.rnn_states_critic[step]),
                 np.concatenate(buffer.masks[step]),
                 np.concatenate(buffer.available_actions[step]) if buffer.available_actions is not None else None,
+                partner_emb=partner_emb,
             )
 
             value = np.expand_dims(np.array(_t2n(value)), axis=1)
@@ -206,6 +246,7 @@ class TrainerPool:
                 action_log_prob,
                 rnn_states,
                 rnn_states_critic,
+                partner_emb,
             )
 
             for i, (e, a) in enumerate(self.control_agents[trainer_name]):
@@ -241,7 +282,20 @@ class TrainerPool:
                 action_log_prob,
                 rnn_states,
                 rnn_states_critic,
+                partner_emb,
             ) = self.step_data[trainer_name]
+
+            # Slide the partner window forward with the post-step obs so the
+            # NEXT step() call encodes an up-to-date history. (Windows are not
+            # zeroed on mid-episode dones - same convention as the SP loop.)
+            if trainer_name in self._encoder_trainers:
+                window = self.partner_windows[trainer_name]
+                flat_obs_dim = window.shape[-1]
+                obs_flat = obs.reshape(obs.shape[0], obs.shape[1], flat_obs_dim)
+                window = np.roll(window, -1, axis=1)
+                for i, (e, a) in enumerate(self.control_agents[trainer_name]):
+                    window[i, -1, :] = obs_flat[e, 1 - a]
+                self.partner_windows[trainer_name] = window
 
             # (control_agent_count[trainer_name], 1, *)
             obs_lst = np.expand_dims(self.extract_elements(trainer_name, obs), axis=1)
@@ -285,6 +339,9 @@ class TrainerPool:
                 active_masks=active_masks_lst,
                 bad_masks=bad_masks_lst,
                 available_actions=available_actions_lst,
+                # The embedding used when ACTING this step - stored so the PPO
+                # update evaluates actions under the same conditioning input.
+                partner_embs=np.expand_dims(partner_emb, axis=1) if partner_emb is not None else None,
             )
 
             if infos is not None:
