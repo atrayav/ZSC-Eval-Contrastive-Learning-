@@ -185,13 +185,37 @@ in the encoder checkpoint so the online path can apply the identical transform.
 
 ---
 
+## 2026-07-12 — FCP Stage 2 Conditioning: Smoke Test Passed
+
+### What we did
+- Fixed the three crashes hit while first wiring the frozen encoder into Stage 2:
+  env reset/step handing back tuples instead of arrays (`np.asarray` guards in
+  `trainer_pool.py`), the encoder loaded into a stale policy handle
+  (`runner.trainer.trainer_pool[agent].policy`, unwrapping `EvalPolicy`), and a new
+  `freeze_partner_encoder` flag so the SP-style joint InfoNCE update is skipped
+- Added `shell/train_fcp_s2_contrastive_smoke.sh`: 9,600 steps, 12-partner smoke
+  population (`train-smoke.yml`, gitignored under policy_pool), frozen 3k encoder
+- Two more launch requirements surfaced: Stage 2 asserts `use_eval` (eval flags are
+  mandatory), and `ulimit -n` must be raised or tensorboardX dies with EMFILE at the
+  first `log_env` (the stock `train_fcp_stage_2.sh` already does this)
+
+### Result
+- Full pipeline ran clean end-to-end: `partner-emb conditioning ACTIVE for
+  trainers: ['fcp_adaptive']` logged, frozen encoder loaded (input_scale=255 from
+  checkpoint), 2/2 PPO updates at ~93 FPS, eval across all 24 (partner, seat)
+  pairings, exit 0
+- Shaped reward ~21 after two updates; sparse eval rewards mostly 0 — expected for a
+  from-scratch agent on `random3`, this run only validates wiring
+
+---
+
 ## Next Steps
 
 - [x] Rollout-collection script (done 07-12, `collect_partner_windows.py`)
 - [x] Offline InfoNCE pre-training (done 07-12, `pretrain_partner_encoder.py`)
 - [x] Go/no-go gate: PASSED — 30.9% held-out partner id vs 11.1% chance (3k ckpt)
-- [ ] Integrate frozen encoder into FCP Stage 2 training (population loop wiring,
-      /255 input scaling in the online window path, `--pretrained_encoder_path`)
+- [x] Integrate frozen encoder into FCP Stage 2 training (done 07-12, smoke test
+      passed end-to-end; see entry above)
 - [ ] Train conditioned S2 agent on `random3`; compare BR-Prox vs FCP baseline 0.635
 - [ ] Ablations: zero-embedding control, within-episode adaptation curve
 - [ ] Move full training runs and ablations to Hyak (access pending)
