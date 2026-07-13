@@ -130,6 +130,11 @@ class TrainerPool:
             if getattr(getattr(self.trainer_pool[trainer_name], "policy", None), "encoder", None) is not None
             and getattr(self.policy_config(trainer_name)[0], "condition_actor_on_partner", False)
         }
+        if self._encoder_trainers and not getattr(self, "_encoder_trainers_logged", False):
+            # One-time visibility: without this a wiring bug would silently
+            # fall back to zero-padded embeddings and train a baseline agent.
+            logger.info(f"partner-emb conditioning ACTIVE for trainers: {sorted(self._encoder_trainers)}")
+            self._encoder_trainers_logged = True
         self.partner_windows = {}
         self.__initialized = True
 
@@ -164,12 +169,13 @@ class TrainerPool:
             if trainer_name in self._encoder_trainers:
                 policy_args = self.policy_config(trainer_name)[0]
                 context_len = getattr(policy_args, "encoder_context_len", 20)
-                flat_obs_dim = int(np.prod(obs.shape[2:]))
+                obs_arr = np.asarray(obs)  # env reset may hand back a tuple
+                flat_obs_dim = int(np.prod(obs_arr.shape[2:]))
                 window = np.zeros(
                     (self.control_agent_count[trainer_name], context_len, flat_obs_dim),
                     dtype=np.float32,
                 )
-                obs_flat = obs.reshape(obs.shape[0], obs.shape[1], flat_obs_dim)
+                obs_flat = obs_arr.reshape(obs_arr.shape[0], obs_arr.shape[1], flat_obs_dim)
                 for i, (e, a) in enumerate(self.control_agents[trainer_name]):
                     window[i, -1, :] = obs_flat[e, 1 - a]
                 self.partner_windows[trainer_name] = window
@@ -291,7 +297,8 @@ class TrainerPool:
             if trainer_name in self._encoder_trainers:
                 window = self.partner_windows[trainer_name]
                 flat_obs_dim = window.shape[-1]
-                obs_flat = obs.reshape(obs.shape[0], obs.shape[1], flat_obs_dim)
+                obs_arr = np.asarray(obs)  # env step may hand back a tuple
+                obs_flat = obs_arr.reshape(obs_arr.shape[0], obs_arr.shape[1], flat_obs_dim)
                 window = np.roll(window, -1, axis=1)
                 for i, (e, a) in enumerate(self.control_agents[trainer_name]):
                     window[i, -1, :] = obs_flat[e, 1 - a]
