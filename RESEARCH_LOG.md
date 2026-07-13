@@ -209,6 +209,35 @@ in the encoder checkpoint so the online path can apply the identical transform.
 
 ---
 
+## 2026-07-12 — Full-Scale Run Prepped: Ready to Launch
+
+### What we did
+- Generated the real S2 population yamls (`prep/gen_S2_yml.py random3 fcp` — must be
+  run from `zsceval/scripts/`, its `../policy_pool` is CWD-relative): all 15
+  `train-s{12,24,36}-sp-{1..5}.yml` now exist locally (gitignored — regenerate on Hyak)
+- Added `shell/train_fcp_s2_contrastive.sh`: production launch mirroring the stock
+  `train_fcp_stage_2.sh` (same entropy schedule, steps, eval cadence) plus the frozen
+  encoder flags; third arg `baseline` drops the encoder for the same-codebase control;
+  `SEED_BEGIN`/`SEED_MAX`/`N_THREADS`/`ENCODER_CKPT` env overrides; wandb off; logs
+  tee to `~/ZSC-Eval/logs/`
+- Launch-validated for 150 s on the real `train-s12-sp-1.yml`: frozen 3k encoder
+  loaded, conditioning ACTIVE, 2 PPO updates clean, then killed and the run dir removed
+- Updated `CONTEXT.md`: status, run instructions, file map; the SP-negatives
+  "open decision" section is now marked RESOLVED
+
+### Compute reality check
+- Laptop at 12 threads: ~88 FPS → **~7 days per seed** for the 5e7-step s12 run.
+  Hyak remains the sensible venue; a single-seed laptop run is feasible if impatient.
+
+### To launch (in WSL)
+```bash
+cd ~/ZSC-Eval/zsceval/scripts/overcooked/shell
+bash train_fcp_s2_contrastive.sh random3 12            # treatment
+bash train_fcp_s2_contrastive.sh random3 12 baseline   # control
+```
+
+---
+
 ## Next Steps
 
 - [x] Rollout-collection script (done 07-12, `collect_partner_windows.py`)
@@ -216,6 +245,9 @@ in the encoder checkpoint so the online path can apply the identical transform.
 - [x] Go/no-go gate: PASSED — 30.9% held-out partner id vs 11.1% chance (3k ckpt)
 - [x] Integrate frozen encoder into FCP Stage 2 training (done 07-12, smoke test
       passed end-to-end; see entry above)
-- [ ] Train conditioned S2 agent on `random3`; compare BR-Prox vs FCP baseline 0.635
+- [x] Prep full-scale launch (done 07-12: population yamls generated,
+      `train_fcp_s2_contrastive.sh` launch-validated — see entry above)
+- [ ] **RUN IT:** conditioned S2 agent on `random3` (+ `baseline` mode control);
+      compare BR-Prox vs FCP baseline 0.635
 - [ ] Ablations: zero-embedding control, within-episode adaptation curve
 - [ ] Move full training runs and ablations to Hyak (access pending)

@@ -4,7 +4,7 @@
 > AI assistant in a fresh session) up to speed fast. Read this top-to-bottom and you
 > should be able to continue the work without re-deriving anything.
 >
-> Last updated: 2026-07-10.
+> Last updated: 2026-07-12.
 
 ---
 
@@ -20,9 +20,16 @@ measured with **BR-Prox** on Overcooked layouts, primarily `random3` (hardest) a
 
 ## 2. Current status
 
-- Encoder stack is **fully implemented, commented, and pushed.** Dry-run passes on `random3`.
-- **Not yet run at full scale.** No results for the contrastive method yet.
+- **Staged pipeline complete and gated** (07-12): offline pre-training on FCP rollouts
+  passed the go/no-go probe — 30.9% held-out partner id vs 11.1% chance. Deploy the
+  **3k-step** checkpoint (`data/partner_windows/encoder_random3.pt`); 10k overfits.
+  Finding: the embedding mostly encodes partner *competence* (71% at init/mid/final
+  stage) rather than individual identity — frame the write-up accordingly.
+- **FCP Stage 2 conditioning wired and smoke-tested** end-to-end (07-12).
+- **READY TO RUN:** the full-scale conditioned run (see §5). Not yet started —
+  ~7 days/seed on the laptop at 12 threads; Hyak access pending.
 - Baselines already reproduced (see `RESEARCH_LOG.md`): e.g. `random3` SP=0.10, FCP=0.64, MEP=0.70.
+  **Number to beat: FCP BR-Prox 0.635 on `random3`.**
 
 ## 3. Where the code lives (important: two checkouts)
 
@@ -47,40 +54,52 @@ measured with **BR-Prox** on Overcooked layouts, primarily `random3` (hardest) a
 | `zsceval/utils/shared_buffer.py` | Stores `partner_embs`; all 3 generators yield it as a 14th field. |
 | `zsceval/runner/shared/overcooked_runner.py` | Rolling partner-obs window, `_get_partner_emb`, eval window, encoder checkpointing. |
 | `zsceval/overcooked_config.py` | 8 CLI args (see below). |
-| `zsceval/scripts/overcooked/shell/train_contrastive_sp.sh` | **NEW.** Launch script. |
+| `zsceval/scripts/overcooked/shell/train_contrastive_sp.sh` | **NEW.** SP launch script (legacy path). |
+| `zsceval/scripts/overcooked/collect_partner_windows.py` | **NEW.** Rollouts vs each frozen FCP S1 partner → labeled obs windows. |
+| `zsceval/scripts/overcooked/pretrain_partner_encoder.py` | **NEW.** Offline InfoNCE pre-training + k-NN probe gate. |
+| `zsceval/algorithms/population/trainer_pool.py` | Partner windows + frozen-encoder embeddings in the population (S2) loop. |
+| `zsceval/scripts/overcooked/train/train_adaptive.py` | Injects encoder flags; loads + freezes the pre-trained encoder. |
+| `zsceval/scripts/overcooked/shell/train_fcp_s2_contrastive.sh` | **NEW.** THE full-scale launch script (treatment + baseline modes). |
+| `zsceval/scripts/overcooked/shell/train_fcp_s2_contrastive_smoke.sh` | **NEW.** Minutes-long wiring check for the above. |
 
 ## 5. How to run it
 
+**THE run to do next (staged setup, all in WSL):**
+
 ```bash
-# in WSL:
-source ~/miniconda3/etc/profile.d/conda.sh && conda activate zsceval
-cd ~/ZSC-Eval
-# Phase 1 — train the encoder only (actor ignores embedding):
-bash zsceval/scripts/overcooked/shell/train_contrastive_sp.sh random3
-# Phase 2 — also condition the actor on the embedding:
-bash zsceval/scripts/overcooked/shell/train_contrastive_sp.sh random3 --condition
+cd ~/ZSC-Eval/zsceval/scripts/overcooked/shell
+# treatment: adaptive agent conditioned on the frozen pre-trained encoder
+bash train_fcp_s2_contrastive.sh random3 12
+# control: identical run, no encoder (same-codebase FCP baseline)
+bash train_fcp_s2_contrastive.sh random3 12 baseline
+# quick wiring check first if anything changed (a few minutes):
+bash train_fcp_s2_contrastive_smoke.sh
 ```
 
-**Two-switch design:** `--use_partner_encoder` alone = Phase 1 (learn hunches).
-Add `--condition_actor_on_partner` = Phase 2 (act on hunches). Other args:
-`--partner_emb_dim 32 --encoder_context_len 20 --encoder_hidden_size 64
---infonce_temperature 0.1 --encoder_lr 1e-3 --infonce_coef 1.0`.
+Env overrides: `SEED_BEGIN`/`SEED_MAX` (default 1..5), `N_THREADS` (default 100 —
+use ~12 on the laptop), `ENCODER_CKPT`. Logs tee to `~/ZSC-Eval/logs/`.
+On a fresh machine first regenerate the gitignored inputs: population yamls
+(`cd zsceval/scripts && python prep/gen_S2_yml.py random3 fcp`) and the encoder
+checkpoint (`collect_partner_windows.py` then `pretrain_partner_encoder.py`,
+run from `zsceval/scripts/overcooked/`, or copy `data/partner_windows/` over).
 
-## 6. ⚠️ THE open decision — start here
+**Legacy SP path** (superseded by the staged setup, kept for ablations):
+`train_contrastive_sp.sh random3 [--condition]` — `--use_partner_encoder` alone
+learns hunches jointly during SP; `--condition_actor_on_partner` also acts on them.
 
-The encoder trains on **self-play** rollouts, where every thread runs the *same* policy.
-So InfoNCE's "negatives" are not distinct partners — the encoder can only learn to tell
-trajectory/state noise apart, **not partner identity.** This makes the core claim
-untestable as currently wired.
+## 6. ✅ The SP-negatives problem — RESOLVED (2026-07-12)
 
-**Fix:** move encoder training from SP → **FCP Stage 2**, where each thread is paired with
-a genuinely distinct population partner. Two options, not yet chosen:
-1. Train the encoder jointly during FCP S2 (more integrated).
-2. Pre-train the encoder on frozen FCP population rollouts, then condition the policy
-   separately (cleaner to debug; closer to PEARL's staged setup).
+The original wiring trained the encoder on **self-play** rollouts, where every thread
+runs the *same* policy, so InfoNCE's "negatives" were not distinct partners.
 
-Everything downstream (which files change, whether `train_contrastive_sp.sh` forks into a
-`_fcp` variant) depends on this choice.
+**Resolution: Option 2 — staged pre-training** (see RESEARCH_LOG 2026-07-12 entries).
+The encoder is pre-trained offline on rollouts against the 45 frozen FCP Stage-1
+partners (`collect_partner_windows.py` → `pretrain_partner_encoder.py`), gated by a
+k-NN probe on held-out partners (passed), then loaded FROZEN into FCP Stage 2 via
+`--pretrained_encoder_path`. Key implementation invariant: observations are divided
+by `partner_obs_scale` (255, stored in the checkpoint) before encoding — raw
+image-scaled obs saturate the GRU. The next open question is empirical, not
+architectural: does conditioning beat FCP 0.635 BR-Prox on `random3`?
 
 ## 7. Gotchas that cost time before
 
