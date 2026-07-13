@@ -47,6 +47,9 @@ class R_MAPPO:
         self.use_partner_encoder = getattr(args, "use_partner_encoder", False)
         self.infonce_temperature = getattr(args, "infonce_temperature", 0.1)
         self.infonce_coef = getattr(args, "infonce_coef", 1.0)
+        # Staged setup: a pre-trained encoder is loaded frozen, so the joint
+        # InfoNCE update in train() must be skipped.
+        self.freeze_partner_encoder = getattr(args, "freeze_partner_encoder", False)
 
         assert (
             self._use_popart and self._use_valuenorm
@@ -411,7 +414,11 @@ class R_MAPPO:
         for k in train_info.keys():
             train_info[k] /= num_updates
 
-        if self.use_partner_encoder:
+        # Joint InfoNCE update (SP-style Phase 1/2). Skipped in the staged
+        # setup: a pre-trained frozen encoder must not be trained further, and
+        # the anchor/positive split below assumes the 2-agent SP buffer layout
+        # anyway (population buffers have num_agents=1).
+        if self.use_partner_encoder and not self.freeze_partner_encoder:
             train_info["encoder_loss"] = self.update_encoder(buffer)
 
         return train_info

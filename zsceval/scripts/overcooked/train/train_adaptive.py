@@ -307,6 +307,9 @@ def main(args):
             # the 14-field path.
             use_partner_encoder=getattr(all_args, "use_partner_encoder", False),
             condition_actor_on_partner=getattr(all_args, "condition_actor_on_partner", False),
+            # A pre-trained encoder is always frozen here (staged setup);
+            # this also disables the SP-style joint InfoNCE update in train().
+            freeze_partner_encoder=bool(getattr(all_args, "pretrained_encoder_path", None)),
             partner_emb_dim=getattr(all_args, "partner_emb_dim", 32),
             encoder_context_len=getattr(all_args, "encoder_context_len", 20),
             encoder_hidden_size=getattr(all_args, "encoder_hidden_size", 64),
@@ -345,7 +348,11 @@ def main(args):
     # checkpoint so online inputs are normalized exactly like pre-training.
     if getattr(all_args, "pretrained_encoder_path", None):
         assert all_args.use_partner_encoder, "--pretrained_encoder_path requires --use_partner_encoder"
-        adaptive_policy = runner.policy.policy_pool[agent_name]
+        # The pool may hand back an EvalPolicy wrapper; the trainer holds the
+        # raw R_MAPPOPolicy that actually owns the encoder used in rollouts.
+        adaptive_policy = runner.trainer.trainer_pool[agent_name].policy
+        if hasattr(adaptive_policy, "policy"):  # unwrap EvalPolicy just in case
+            adaptive_policy = adaptive_policy.policy
         ckpt = torch.load(all_args.pretrained_encoder_path, map_location="cpu")
         adaptive_policy.encoder.load_state_dict(ckpt["state_dict"])
         for p in adaptive_policy.encoder.parameters():
