@@ -254,12 +254,17 @@ class R_MAPPOPolicy:
         return action_log_probs, rnn_states_actor
 
     def load_checkpoint(self, ckpt_path):
+        # ckpt_path is a dict of network name -> .pt file. Actor and critic
+        # load independently, so frozen population partners can ship an
+        # actor-only checkpoint (no critic is needed to act).
         if "actor" in ckpt_path:
             self.actor.load_state_dict(torch.load(ckpt_path["actor"], map_location=self.device))
         if "critic" in ckpt_path:
             self.critic.load_state_dict(torch.load(ckpt_path["critic"], map_location=self.device))
 
     def to(self, device):
+        # Move every owned network in lockstep so no forward pass ever mixes
+        # devices (the encoder is optional - see __init__).
         self.actor.to(device)
         self.critic.to(device)
         if self.encoder is not None:
