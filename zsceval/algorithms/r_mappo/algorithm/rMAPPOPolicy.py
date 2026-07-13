@@ -104,6 +104,10 @@ class R_MAPPOPolicy:
             self.encoder_optimizer = None
 
     def to_parallel(self):
+        # Fan forward passes out across all visible GPUs. Each top-level
+        # child of actor/critic is wrapped individually (rather than the
+        # whole network) so the module attribute layout stays unchanged for
+        # code that reaches inside, e.g. actor.base or actor.act.
         if self.data_parallel:
             logger.warning(
                 f"Use Data Parallel for Forwarding in devices {[torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]}"
@@ -114,6 +118,9 @@ class R_MAPPOPolicy:
                 setattr(self.critic, name, ExDataParallel(children))
 
     def lr_decay(self, episode, episodes):
+        # Linearly anneal both learning rates from their initial value toward
+        # zero as training progresses (episode / episodes elapsed fraction).
+        # Called once per training episode by the runner.
         update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
         update_linear_schedule(self.critic_optimizer, episode, episodes, self.critic_lr)
 
