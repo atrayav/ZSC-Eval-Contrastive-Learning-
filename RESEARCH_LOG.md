@@ -187,9 +187,11 @@ in the encoder checkpoint so the online path can apply the identical transform.
 
 ## Next Steps
 
-- [ ] Rollout-collection script: pair a fixed agent with each frozen FCP population partner, save observation windows labeled by partner ID
-- [ ] Offline InfoNCE pre-training: positives = same partner / different windows, negatives = other partners
-- [ ] **Go/no-go gate:** linear-probe / k-NN partner classification accuracy on held-out partners and held-out episodes
-- [ ] If gate passes: condition the actor on the frozen encoder during FCP Stage 2; compare BR-Prox vs FCP baseline (`random3`: 0.635, `unident_s`: 0.967)
+- [x] Rollout-collection script (done 07-12, `collect_partner_windows.py`)
+- [x] Offline InfoNCE pre-training (done 07-12, `pretrain_partner_encoder.py`)
+- [x] Go/no-go gate: PASSED — 30.9% held-out partner id vs 11.1% chance (3k ckpt)
+- [ ] Integrate frozen encoder into FCP Stage 2 training (population loop wiring,
+      /255 input scaling in the online window path, `--pretrained_encoder_path`)
+- [ ] Train conditioned S2 agent on `random3`; compare BR-Prox vs FCP baseline 0.635
 - [ ] Ablations: zero-embedding control, within-episode adaptation curve
 - [ ] Move full training runs and ablations to Hyak (access pending)
