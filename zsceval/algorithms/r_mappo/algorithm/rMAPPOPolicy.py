@@ -171,11 +171,18 @@ class R_MAPPOPolicy:
         task_id=None,
         partner_emb=None,
     ):
+        # Update-time entry point: re-run the CURRENT network on actions that
+        # were sampled by an OLDER version of itself during collection. The
+        # fresh log-probs divided by the stored ones form the PPO importance
+        # ratio; dist_entropy feeds the exploration bonus. Inputs (including
+        # partner_emb) must exactly match what was used when acting, or the
+        # ratio is computed against the wrong distribution.
         (
             action_log_probs,
             dist_entropy,
             policy_values,
         ) = self.actor.evaluate_actions(obs, rnn_states_actor, action, masks, available_actions, active_masks, partner_emb=partner_emb)
+        # Fresh value estimates for the value-loss term of the same update.
         values, _ = self.critic(share_obs, rnn_states_critic, masks, task_id=task_id)
         return values, action_log_probs, dist_entropy, policy_values
 
