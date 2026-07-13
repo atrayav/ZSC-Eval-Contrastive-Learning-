@@ -150,6 +150,41 @@ Resolve the SP-negatives problem (see 06-26 caveat) with **Option 2: pre-train t
 ---
 
 
+## 2026-07-12 — Offline Pre-training Results: Gate PASSED
+
+### Pipeline built and run (all on `random3`)
+- `collect_partner_windows.py`: frozen FCP S2 ego paired with each of the 45 frozen
+  FCP S1 partner checkpoints (15 runs x init/mid/final), stochastic actions, both seats.
+  7,020 windows of 20 steps x 800-dim obs, 156 per partner, balanced.
+- `pretrain_partner_encoder.py`: InfoNCE with cross-episode positives (same partner,
+  different episode — blocks episode-state shortcuts). Runs sp3/sp8/sp13 (9 checkpoints)
+  held out entirely. k-NN probe with episode-split reference/query.
+
+### The bug that mattered
+Featurized Overcooked obs are uint8-image-scaled: presence flags = 255, pot timers up
+to 5100. Fed raw, they saturate the GRU — first run's loss sat at log(32) and the
+held-out probe was 19%. Dividing inputs by 255 fixed it; the scale constant is stored
+in the encoder checkpoint so the online path can apply the identical transform.
+
+### Gate results (k-NN probe, held-out partners)
+| Metric | 3k steps | 10k steps | chance |
+|---|---|---|---|
+| held-out partner id | **30.9%** | 28.5% | 11.1% |
+| train partner id | 28.5% | 81.4% | 2.8% |
+| held-out stage (init/mid/final) | **71.1%** | 66.2% | 33.3% |
+| held-out run id | 43.2% | 43.9% | 33.3% |
+| seat confound | ~50% | ~50% | 50% |
+
+### Conclusions
+- **Gate passed:** ~2.8x chance on unseen-partner identification; seat confound clean.
+- **Overfitting past ~3k steps:** train probe climbs to 81% while held-out dips —
+  deploy the 3k checkpoint (early stopping).
+- **The embedding mostly encodes competence, not identity:** 71% at stage vs 43% at
+  run id. For coordination this is arguably the right axis (adapt to partner skill),
+  but the write-up should frame it as competence inference.
+
+---
+
 ## Next Steps
 
 - [ ] Rollout-collection script: pair a fixed agent with each frozen FCP population partner, save observation windows labeled by partner ID
