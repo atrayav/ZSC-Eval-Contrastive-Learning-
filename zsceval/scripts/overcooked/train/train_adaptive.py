@@ -299,6 +299,20 @@ def main(args):
             entropy_coef_horizons=all_args.entropy_coef_horizons,
             use_peb=all_args.use_peb,
             data_parallel=all_args.data_parallel,
+            # Partner-encoder conditioning (staged contrastive setup). The
+            # adaptive agent's policy config comes from a pickled file that
+            # predates these flags, so they must be injected here: they make
+            # the policy build its encoder + conditioned actor, the trainer
+            # pool allocate partner_embs in the buffer, and ppo_update take
+            # the 14-field path.
+            use_partner_encoder=getattr(all_args, "use_partner_encoder", False),
+            condition_actor_on_partner=getattr(all_args, "condition_actor_on_partner", False),
+            partner_emb_dim=getattr(all_args, "partner_emb_dim", 32),
+            encoder_context_len=getattr(all_args, "encoder_context_len", 20),
+            encoder_hidden_size=getattr(all_args, "encoder_hidden_size", 64),
+            encoder_lr=getattr(all_args, "encoder_lr", 1e-3),
+            infonce_temperature=getattr(all_args, "infonce_temperature", 0.1),
+            infonce_coef=getattr(all_args, "infonce_coef", 1.0),
         ),
         *runner.policy_config[1:],
     )
@@ -323,6 +337,25 @@ def main(args):
         override_policy_config=override_policy_config,
     )
     runner.trainer.init_population()
+
+    # Staged contrastive setup: load the offline pre-trained partner encoder
+    # into the adaptive agent's policy and FREEZE it. The population loop
+    # never calls update_encoder, and requires_grad=False guards against any
+    # other path touching the weights. partner_obs_scale is taken from the
+    # checkpoint so online inputs are normalized exactly like pre-training.
+    if getattr(all_args, "pretrained_encoder_path", None):
+        assert all_args.use_partner_encoder, "--pretrained_encoder_path requires --use_partner_encoder"
+        adaptive_policy = runner.policy.policy_pool[agent_name]
+        ckpt = torch.load(all_args.pretrained_encoder_path, map_location="cpu")
+        adaptive_policy.encoder.load_state_dict(ckpt["state_dict"])
+        for p in adaptive_policy.encoder.parameters():
+            p.requires_grad_(False)
+        if "input_scale" in ckpt:
+            all_args.partner_obs_scale = float(ckpt["input_scale"])
+        logger.success(
+            f"loaded FROZEN partner encoder from {all_args.pretrained_encoder_path} "
+            f"(input_scale={getattr(all_args, 'partner_obs_scale', 255.0)})"
+        )
 
     runner.train_mep()
 
